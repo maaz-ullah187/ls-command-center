@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/*
+ * Tailwind v4 theme — point font-sans at the next/font Inter variable so
+ * every component using `font-sans` (and the body's default sans) renders
+ * Inter. Cameron 2026-04-30 wants the whole dashboard easier to read.
+ */
+@theme {
+  --font-sans:
+    var(--font-sans), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Slightly looser default line-height + tabular numbers globally so figures
+   stay aligned in tables and KPI cards. */
+body {
+  font-feature-settings: "cv11", "ss01", "ss03";
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.005em;
+}
+
+h1, h2, h3, h4 {
+  letter-spacing: -0.015em;
+}

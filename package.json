@@ -1,0 +1,40 @@
+{
+  "name": "business-data-brain-template",
+  "version": "0.1.0",
+  "description": "An open-source template for building a unified business intelligence dashboard. Pulls leads, ads, payments, calls, and team activity from Meta, GHL, Calendly, Whop, Grain, Slack, YouTube, and more — into one Supabase warehouse with a Next.js dashboard on top.",
+  "private": false,
+  "license": "MIT",
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start"
+  },
+  "type": "module",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.87.0",
+    "@supabase/supabase-js": "^2.45.4",
+    "date-fns": "^4.1.0",
+    "lucide-react": "^1.7.0",
+    "next": "^15.5.14",
+    "node-fetch": "^2.7.0",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-is": "^19.2.4",
+    "recharts": "^3.8.1"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.2.2",
+    "@types/node": "^25.5.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "autoprefixer": "^10.4.27",
+    "dotenv": "^17.4.2",
+    "postcss": "^8.5.8",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^6.0.2",
+    "vercel": "^50.43.0"
+  },
+  "engines": {
+    "node": "20.x"
+  }
+}

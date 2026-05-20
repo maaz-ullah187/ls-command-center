@@ -3,87 +3,35 @@
   "crons": [
     {
       "path": "/api/sync/ghl",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/sync/bookings",
-      "schedule": "0 */2 * * *"
-    },
-    {
-      "path": "/api/slack/sync?hours=3",
-      "schedule": "15 */2 * * *"
-    },
-    {
-      "path": "/api/sync/deals",
-      "schedule": "30 */2 * * *"
-    },
-    {
-      "path": "/api/sync/income",
-      "schedule": "30 */2 * * *"
-    },
-    {
-      "path": "/api/sync/meta",
       "schedule": "0 6 * * *"
     },
     {
-      "path": "/api/sync/expenses",
+      "path": "/api/sync/bookings",
+      "schedule": "0 7 * * *"
+    },
+    {
+      "path": "/api/slack/sync?hours=3",
       "schedule": "0 8 * * *"
     },
     {
-      "path": "/api/sync/youtube",
+      "path": "/api/sync/meta",
       "schedule": "0 9 * * *"
     },
     {
-      "path": "/api/sync/instagram",
+      "path": "/api/sync/expenses",
       "schedule": "0 10 * * *"
     },
     {
-      "path": "/api/sync/client-ledger",
-      "schedule": "15 6 * * *"
-    },
-    {
-      "path": "/api/sync/manychat",
-      "schedule": "0 12 * * *"
+      "path": "/api/sync/youtube",
+      "schedule": "0 11 * * *"
     },
     {
       "path": "/api/sync/grain",
       "schedule": "0 20 * * *"
     },
     {
-      "path": "/api/sync/bookings/enrich",
-      "schedule": "5 * * * *"
-    },
-    {
-      "path": "/api/sync/bookings/details?max=50",
-      "schedule": "30 20 * * *"
-    },
-    {
-      "path": "/api/scoring/calls?max=20",
-      "schedule": "45 20 * * *"
-    },
-    {
-      "path": "/api/scoring/why-bought?max=15",
-      "schedule": "50 20 * * *"
-    },
-    {
-      "path": "/api/sync/bookings/qa",
-      "schedule": "0 21 * * *"
-    },
-    {
-      "path": "/api/backfill/closer-assigned",
-      "schedule": "17 22 * * *"
-    },
-    {
       "path": "/api/sync/eod-reports?hours=24",
-      "schedule": "0 10 * * *"
-    },
-    {
-      "path": "/api/sync/cleanup/junk-leads",
-      "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/monitor/staleness",
-      "schedule": "*/30 * * * *"
+      "schedule": "0 21 * * *"
     }
   ]
 }

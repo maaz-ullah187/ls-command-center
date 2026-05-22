@@ -105,6 +105,12 @@ export interface Ad {
   revenue: number;
   active: boolean;
   thumbnailUrl?: string;
+  // Meta-reported CPL fields (distinct from GHL-sourced `leads`)
+  costPerLead?: number;
+  metaLeads?: number;
+  costPerResult?: number;
+  actions?: Array<{ action_type: string; value: string }>;
+  actionValues?: Array<{ action_type: string; value: string }>;
 }
 
 export interface Closer {

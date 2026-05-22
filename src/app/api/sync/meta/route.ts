@@ -35,6 +35,11 @@ function adToRow(ad: Ad) {
     revenue: ad.revenue ?? 0,
     active: ad.active ?? true,
     updated_at: new Date().toISOString(),
+    cost_per_lead: ad.costPerLead ?? null,
+    meta_leads: ad.metaLeads ?? null,
+    cost_per_result: ad.costPerResult ?? null,
+    actions: ad.actions ?? null,
+    action_values: ad.actionValues ?? null,
   };
 }
 

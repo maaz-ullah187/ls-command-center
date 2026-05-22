@@ -21,6 +21,11 @@ const META_ACCOUNT = process.env.META_AD_ACCOUNT_ID || '';
 const USE_PROXY = PROXY_BASE && !PROXY_BASE.includes('localhost');
 const GRAPH_BASE = `https://graph.facebook.com/v21.0/act_${META_ACCOUNT}`;
 
+interface MetaActionEntry {
+  action_type: string;
+  value: string;
+}
+
 interface MetaInsight {
   ad_id?: string;
   ad_name?: string;
@@ -34,6 +39,9 @@ interface MetaInsight {
   clicks?: string;
   date_start?: string;
   date_stop?: string;
+  actions?: MetaActionEntry[];
+  action_values?: MetaActionEntry[];
+  cost_per_action_type?: MetaActionEntry[];
 }
 
 interface MetaInsightResponse {
@@ -60,7 +68,21 @@ interface MetaAdsResponse {
   error?: { message: string; type: string; code: number };
 }
 
+function findActionValue(entries: MetaActionEntry[] | undefined, type: string): number | undefined {
+  const entry = entries?.find(e => e.action_type === type);
+  if (!entry) return undefined;
+  const n = parseFloat(entry.value);
+  return isNaN(n) ? undefined : n;
+}
+
 export function mapMetaInsightToAd(i: MetaInsight, meta?: MetaAdMeta): Ad {
+  const metaLeads = findActionValue(i.actions, 'lead');
+  const costPerLead = findActionValue(i.cost_per_action_type, 'lead');
+  // cost_per_result uses whichever objective action has a cost entry
+  const costPerResult = i.cost_per_action_type?.length
+    ? parseFloat(i.cost_per_action_type[0].value)
+    : undefined;
+
   return {
     id: i.date_start
       ? `${i.ad_id ?? 'meta'}-${i.date_start}`
@@ -85,6 +107,11 @@ export function mapMetaInsightToAd(i: MetaInsight, meta?: MetaAdMeta): Ad {
     campaignId: i.campaign_id,
     adSetId: i.adset_id,
     adId: i.ad_id,
+    metaLeads: metaLeads !== undefined ? Math.round(metaLeads) : undefined,
+    costPerLead,
+    costPerResult: isNaN(costPerResult as number) ? undefined : costPerResult,
+    actions: i.actions,
+    actionValues: i.action_values,
   };
 }
 
@@ -205,6 +232,9 @@ export async function fetchMetaInsights(
     'spend',
     'impressions',
     'clicks',
+    'actions',
+    'action_values',
+    'cost_per_action_type',
   ].join(',');
 
   // Helper: fetch insights with pagination (Meta returns max 25 per page)

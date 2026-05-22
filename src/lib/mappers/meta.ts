@@ -96,7 +96,7 @@ export function mapMetaInsightToAd(i: MetaInsight, meta?: MetaAdMeta): Ad {
     spend: parseFloat(i.spend ?? '0'),
     impressions: parseInt(i.impressions ?? '0', 10),
     clicks: parseInt(i.clicks ?? '0', 10),
-    leads: 0,
+    leads: metaLeads ?? 0,
     scheduledCalls: 0,
     qualifiedCalls: 0,
     purchases: 0,
@@ -248,7 +248,15 @@ export async function fetchMetaInsights(
         if (!res.ok) break;
         const json = await res.json();
         if (json.error) break;
-        if (json.data) allData.push(...json.data);
+        if (json.data) {
+          // Log the first row once so we can confirm actions fields arrive from the proxy
+          if (allData.length === 0 && json.data.length > 0) {
+            const sample = json.data[0];
+            console.log('[meta] first insight row keys:', Object.keys(sample).join(','));
+            console.log('[meta] sample actions:', JSON.stringify(sample.actions?.slice(0, 3) ?? null));
+          }
+          allData.push(...json.data);
+        }
         url = json.paging?.next || null;
         page++;
       } catch { break; }

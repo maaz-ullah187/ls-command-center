@@ -25,6 +25,14 @@ export function aggregateMetrics(leads: Lead[], ads: Ad[], dailyMetrics: DailyMe
   const totalSpend = ads.reduce((s, a) => s + a.spend, 0);
   const totalClicks = ads.reduce((s, a) => s + a.clicks, 0);
   const totalLeads = leads.length;
+  // CPL should be derived from Meta-reported leads (the ad-platform metric),
+  // not the CRM lead count which may not yet be synced for the active date range.
+  // Fall back to CRM leads if Meta reports none (e.g. organic-only filter).
+  const adReportedLeads = ads.reduce(
+    (s, a) => s + (a.metaLeads ?? a.leads ?? 0),
+    0
+  );
+  const cplDenominator = adReportedLeads > 0 ? adReportedLeads : totalLeads;
   const today = new Date().toISOString().slice(0, 10);
   const callsBooked = leads.filter(l => l.demoBooked).length;
   const callsShown = leads.filter(l => l.showStatus === 'Showed').length;
@@ -62,7 +70,7 @@ export function aggregateMetrics(leads: Lead[], ads: Ad[], dailyMetrics: DailyMe
     callsRescheduled,
     cancellationRate: callsBooked > 0 ? ((callsCancelled + callsRescheduled) / callsBooked) * 100 : 0,
     cpc: totalClicks > 0 ? totalSpend / totalClicks : 0,
-    cpl: totalLeads > 0 ? totalSpend / totalLeads : 0,
+    cpl: cplDenominator > 0 ? totalSpend / cplDenominator : 0,
     costPerSchedule: callsBooked > 0 ? totalSpend / callsBooked : 0,
     cpqc: callsShown > 0 ? totalSpend / callsShown : 0,
     costPerPurchase: callsClosed > 0 ? totalSpend / callsClosed : 0,

@@ -19,6 +19,10 @@ export interface WhopPayment {
   productId: string;
   productName: string;
   program: string;         // mapped from product
+  // Canonical payment_type bucket from PRODUCT_MAP. Empty string when the
+  // product_id isn't in the map — consumers should fall back to the
+  // billing_reason heuristic in sync/income's `mapPaymentType()`.
+  paymentType: string;
   planId: string;
   billingReason: string;   // one_time, recurring, etc
   cardBrand: string | null;
@@ -61,13 +65,22 @@ export interface WhopPaymentSummary {
   productNames: string[];
 }
 
-// Product ID → human name + program mapping
-const PRODUCT_MAP: Record<string, { name: string; program: string }> = {
-  'prod_PROGRAM_B_PRIMARY': { name: 'Program B', program: 'Program B' },
-  'prod_PROGRAM_C_PRIMARY': { name: 'Generic Limited', program: 'Program B' },
-  'prod_PROGRAM_A_PRIMARY': { name: 'Payment Plan', program: 'Program B' },
-  'prod_PROGRAM_B_RENEWAL': { name: 'Program B Renewal', program: 'Program B' },
-  'prod_PROGRAM_C_SECONDARY': { name: 'Renewal', program: 'Program B' },
+// Product ID → human name + program + canonical payment_type.
+//
+// `paymentType` is authoritative for these mapped products and should be
+// preferred by sync/income's `mapPaymentType()` over the billing_reason
+// heuristic (which Whop reports unreliably for renewals vs. one-offs).
+//
+// `program` left blank for now — operators can refine via the
+// Uncategorized Billing queue.
+const PRODUCT_MAP: Record<
+  string,
+  { name: string; program: string; paymentType: string }
+> = {
+  'prod_dfjhBPZfNSvYi': { name: 'Patient Profit Funnel', program: '', paymentType: 'new_client' },
+  'prod_PginFg9NYH00b': { name: 'Monthly Service Fee',   program: '', paymentType: 'account_receivable' },
+  'prod_Huq5605kl5Ygd': { name: 'Deposit Link',          program: '', paymentType: 'new_client' },
+  'prod_7yDkCLVSni2r4': { name: 'Split Pay',             program: '', paymentType: 'new_client' },
 };
 
 interface WhopAPIPayment {
@@ -144,7 +157,7 @@ export async function fetchWhopPayments(
     const items = json.data ?? [];
 
     for (const p of items) {
-      const product = PRODUCT_MAP[p.product_id] ?? { name: p.product_id, program: 'Unknown' };
+      const product = PRODUCT_MAP[p.product_id] ?? { name: p.product_id, program: 'Unknown', paymentType: '' };
       all.push({
         id: p.id,
         date: epochToISO(p.paid_at) || epochToISO(p.created_at),
@@ -157,6 +170,7 @@ export async function fetchWhopPayments(
         productId: p.product_id,
         productName: product.name,
         program: product.program,
+        paymentType: product.paymentType,
         planId: p.plan_id ?? '',
         billingReason: p.billing_reason ?? '',
         cardBrand: p.card_brand,

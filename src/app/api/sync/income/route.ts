@@ -85,7 +85,13 @@ export async function POST() {
           name: p.customerName || null,
           email: p.customerEmail,
           status: mapStatus(p.status),
-          payment_type: mapPaymentType(p.billingReason, p.status, p.productName || ''),
+          // Product-ID mapping in PRODUCT_MAP (whop.ts) is authoritative when
+          // present — Whop's billing_reason is unreliable for distinguishing
+          // renewals vs. one-offs vs. AR installments. Fall back to the
+          // heuristic only for products not yet mapped.
+          payment_type: p.status === 'refunded'
+            ? 'refund'
+            : (p.paymentType || mapPaymentType(p.billingReason, p.status, p.productName || '')),
           payment_structure: p.billingReason === 'recurring' ? 'Payment Plan' : 'Full Pay',
           closer: null,
           offer: p.productName || null,

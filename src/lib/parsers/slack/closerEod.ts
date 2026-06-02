@@ -193,7 +193,11 @@ export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
     callsCancelled: parseNum(extractField(text, 'Calls Cancelled')),
     offersGiven: parseNum(extractField(demoText, 'Offers Made')),
     deposits: parseNum(extractField(demoText, 'Deposits')),
-    dealsClosed: parseNum(extractField(text, 'Deals Closed')),
+    // "Client Closed" lives in the ADMIN section of the EOD form (not in
+    // either of the Intro / Demo Call Metrics sections), so we extract from
+    // the full `text` rather than `demoText`. This replaces the previous
+    // "Deals Closed" field, which the team no longer uses.
+    dealsClosed: parseNum(extractField(text, 'Client Closed')),
     cashCollected: parseNum(extractField(demoText, 'Total Cash Collected')),
     revenueGenerated: parseNum(extractField(text, 'Revenue Generated')),
     feedback: extractFeedback(text),

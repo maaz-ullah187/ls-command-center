@@ -174,12 +174,10 @@ function sourceFromContact(
   const hasMetaCampaignId = /^\d{10,}$/.test(cid);
 
   if (raw === 'Facebook Ads') {
-    const hasAttribution =
-      (campaignName && campaignName.trim() !== '') ||
-      (adSetName && adSetName.trim() !== '') ||
-      (adName && adName.trim() !== '') ||
-      hasMetaCampaignId;
-    if (!hasAttribution) return 'Unknown';
+    // Trust the raw classifier: if GHL explicitly says Facebook Ads
+    // (via attributionSource, tags, custom fields, etc.), don't second-guess
+    // it just because campaign/adset/ad names didn't land on the contact.
+    // ProgB carve-out still applies — we don't run ProgB ads.
     if (offer === 'ProgB') return 'Unknown';
     return raw;
   }

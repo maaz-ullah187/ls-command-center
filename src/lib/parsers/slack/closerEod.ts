@@ -71,9 +71,23 @@ function parseNum(raw: string | undefined): number {
 function extractField(text: string, label: string): string | undefined {
   // Escape special regex characters in label
   const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`${escaped}:\\s*\\*?([^*\\n]+?)\\*?\\s*$`, 'm');
+  // Handle all of:
+  //   Label: value
+  //   Label: *value*
+  //   *Label:* value          (Slack bold wrapping label + colon)
+  //   *Label*: value          (bold ends before colon)
+  //   *Label:*0               (no space between colon-star and value)
+  //   *Label:* *value*
+  // Optional leading `*`, label, optional `*` before colon, colon, optional
+  // `*` after colon, optional whitespace, then capture the value (which may
+  // itself be wrapped in `*`).
+  const re = new RegExp(
+    `\\*?\\s*${escaped}\\s*\\*?\\s*:\\s*\\*?\\s*([^*\\n]*?)\\s*\\*?\\s*$`,
+    'm',
+  );
   const m = text.match(re);
-  return m?.[1]?.trim();
+  const v = m?.[1]?.trim();
+  return v && v.length > 0 ? v : undefined;
 }
 
 /** Extract the full feedback field which may span multiple lines. */
@@ -93,15 +107,9 @@ function extractFeedback(text: string): string {
  * Returns null if the message is not a Closer EOD or cannot be parsed.
  */
 export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
-  // Gate: only process Closer EOD messages
-  if (!msg.text || !msg.text.includes('Closer EOD')) return null;
-
-  // Skip other EOD types and summaries
-  for (const pattern of SKIP_PATTERNS) {
-    if (msg.text.includes(pattern)) return null;
-  }
-
-  // Extract block text from section blocks
+  // Extract block text FIRST — bot messages (e.g. EOD form bots) usually
+  // put the real content in section blocks and set `msg.text` to a generic
+  // fallback like "New EOD posted". Gating on msg.text alone drops them all.
   let blockText = '';
   if (msg.blocks?.length) {
     for (const block of msg.blocks) {
@@ -111,8 +119,20 @@ export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
     }
   }
 
-  // Fall back to msg.text if no block text found
-  const text = blockText || msg.text;
+  // Combined haystack for the gate + skip checks.
+  const combined = `${msg.text ?? ''}\n${blockText}`;
+
+  // Gate: only process Closer EOD messages
+  if (!combined.includes('Closer EOD')) return null;
+
+  // Skip other EOD types and summaries
+  for (const pattern of SKIP_PATTERNS) {
+    if (combined.includes(pattern)) return null;
+  }
+
+  // Field extraction prefers block text (where bots put structured fields)
+  // and falls back to msg.text for plain user posts.
+  const text = blockText || msg.text || '';
 
   // Extract fields
   const rawDate = extractField(text, 'Date');

@@ -44,6 +44,10 @@ const SKIP_PATTERNS = [
   'Phone Setter EOD',
   'Daily Performance Summary',
   'Reminder',
+  // SDR EODs use the same form template as closers but are tracked separately.
+  // Match both the standalone token and the common "SDR EOD" header.
+  'SDR EOD',
+  'SDR DEPARTMENT',
 ];
 
 /** Parse "Apr 9, 2026" → "2026-04-09" */
@@ -129,9 +133,13 @@ export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
   console.log(`[eod-debug] msg.text:`, JSON.stringify(msg.text ?? '').slice(0, 200));
   console.log(`[eod-debug] blockText (first 400):`, JSON.stringify(blockText).slice(0, 400));
 
-  // Gate: only process Closer EOD messages
-  if (!combined.includes('Closer EOD')) {
-    console.log(`[eod-debug] ts=${debugTs} SKIP: missing "Closer EOD" header`);
+  // Gate: only process Closer EOD messages.
+  // Jacob's bot-posted EODs use a "SALES DEPARTMENT" header instead of
+  // "Closer EOD", so accept either marker.
+  if (!combined.includes('Closer EOD') && !combined.includes('SALES DEPARTMENT')) {
+    console.log(
+      `[eod-debug] ts=${debugTs} SKIP: missing "Closer EOD" / "SALES DEPARTMENT" header`,
+    );
     return null;
   }
 

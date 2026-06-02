@@ -116,7 +116,7 @@ export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
 
   // Extract fields
   const rawDate = extractField(text, 'Date');
-  const closerName = extractField(text, 'Sales Rep') ?? '';
+  const closerName = extractField(text, 'Name') ?? '';
   if (!rawDate || !closerName) return null;
 
   const date = parseDate(rawDate);
@@ -124,14 +124,14 @@ export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
   return {
     date,
     closerName,
-    callsBooked: parseNum(extractField(text, 'Calls Booked')),
-    callsShown: parseNum(extractField(text, 'Calls Shown')),
+    callsBooked: parseNum(extractField(text, 'Calls Scheduled')),
+    callsShown: parseNum(extractField(text, 'Calls Taken')),
     noShows: parseNum(extractField(text, 'No Shows')),
     callsCancelled: parseNum(extractField(text, 'Calls Cancelled')),
-    offersGiven: parseNum(extractField(text, 'Offers Given')),
+    offersGiven: parseNum(extractField(text, 'Offers Made')),
     deposits: parseNum(extractField(text, 'Deposits')),
     dealsClosed: parseNum(extractField(text, 'Deals Closed')),
-    cashCollected: parseNum(extractField(text, 'Cash Collected')),
+    cashCollected: parseNum(extractField(text, 'Total Cash Collected')),
     revenueGenerated: parseNum(extractField(text, 'Revenue Generated')),
     feedback: extractFeedback(text),
     newCalls: parseNum(extractField(text, 'New Calls')),

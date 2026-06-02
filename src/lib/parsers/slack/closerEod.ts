@@ -122,13 +122,27 @@ export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
   // Combined haystack for the gate + skip checks.
   const combined = `${msg.text ?? ''}\n${blockText}`;
 
+  // ── DEBUG (temporary) ───────────────────────────────────────────────
+  // Remove once EOD sync is confirmed working end-to-end.
+  const debugTs = (msg as { ts?: string }).ts ?? 'no-ts';
+  console.log(`[eod-debug] ─── msg ts=${debugTs} ───`);
+  console.log(`[eod-debug] msg.text:`, JSON.stringify(msg.text ?? '').slice(0, 200));
+  console.log(`[eod-debug] blockText (first 400):`, JSON.stringify(blockText).slice(0, 400));
+
   // Gate: only process Closer EOD messages
-  if (!combined.includes('Closer EOD')) return null;
+  if (!combined.includes('Closer EOD')) {
+    console.log(`[eod-debug] ts=${debugTs} SKIP: missing "Closer EOD" header`);
+    return null;
+  }
 
   // Skip other EOD types and summaries
   for (const pattern of SKIP_PATTERNS) {
-    if (combined.includes(pattern)) return null;
+    if (combined.includes(pattern)) {
+      console.log(`[eod-debug] ts=${debugTs} SKIP: matched SKIP_PATTERN "${pattern}"`);
+      return null;
+    }
   }
+  console.log(`[eod-debug] ts=${debugTs} PASSED skip-patterns gate`);
 
   // Field extraction prefers block text (where bots put structured fields)
   // and falls back to msg.text for plain user posts.
@@ -137,7 +151,13 @@ export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
   // Extract fields
   const rawDate = extractField(text, 'Date');
   const closerName = extractField(text, 'Name') ?? '';
-  if (!rawDate || !closerName) return null;
+  console.log(
+    `[eod-debug] ts=${debugTs} rawDate=${JSON.stringify(rawDate)} closerName=${JSON.stringify(closerName)}`,
+  );
+  if (!rawDate || !closerName) {
+    console.log(`[eod-debug] ts=${debugTs} SKIP: missing rawDate or closerName`);
+    return null;
+  }
 
   const date = parseDate(rawDate);
 

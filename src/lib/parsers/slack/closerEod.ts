@@ -169,17 +169,32 @@ export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
 
   const date = parseDate(rawDate);
 
+  // Demo-only fields (Calls Scheduled, Calls Taken, Offers Made, Deposits,
+  // Total Cash Collected, plus Show Rate / Show→Close Rate if added later)
+  // must be pulled from the "Demo Call Metrics" section ONLY — Jacob's EOD
+  // template has an "Intro Call Metrics" section with identical labels, and
+  // the original parser was matching the first occurrence (intro values).
+  //
+  // Slice strategy: find the Demo Call Metrics header and use everything
+  // after it as the haystack for these fields. Fall back to the full text
+  // if the header isn't present (legacy / non-bot formats).
+  const demoIdx = text.search(/Demo Call Metrics/i);
+  const demoText = demoIdx >= 0 ? text.slice(demoIdx) : text;
+  console.log(
+    `[eod-debug] ts=${debugTs} demoHeaderFound=${demoIdx >= 0} demoTextLen=${demoText.length}`,
+  );
+
   return {
     date,
     closerName,
-    callsBooked: parseNum(extractField(text, 'Calls Scheduled')),
-    callsShown: parseNum(extractField(text, 'Calls Taken')),
+    callsBooked: parseNum(extractField(demoText, 'Calls Scheduled')),
+    callsShown: parseNum(extractField(demoText, 'Calls Taken')),
     noShows: parseNum(extractField(text, 'No Shows')),
     callsCancelled: parseNum(extractField(text, 'Calls Cancelled')),
-    offersGiven: parseNum(extractField(text, 'Offers Made')),
-    deposits: parseNum(extractField(text, 'Deposits')),
+    offersGiven: parseNum(extractField(demoText, 'Offers Made')),
+    deposits: parseNum(extractField(demoText, 'Deposits')),
     dealsClosed: parseNum(extractField(text, 'Deals Closed')),
-    cashCollected: parseNum(extractField(text, 'Total Cash Collected')),
+    cashCollected: parseNum(extractField(demoText, 'Total Cash Collected')),
     revenueGenerated: parseNum(extractField(text, 'Revenue Generated')),
     feedback: extractFeedback(text),
     newCalls: parseNum(extractField(text, 'New Calls')),

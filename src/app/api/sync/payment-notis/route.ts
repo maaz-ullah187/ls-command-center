@@ -97,6 +97,13 @@ export async function POST(request: Request) {
         text: msg.text,
         blocks: msg.blocks as never,
       });
+      // ── DEBUG (temporary) ─────────────────────────────────────────────
+      // Remove once payment-notis sync is confirmed working end-to-end.
+      console.log(
+        `[payment-notis-debug] ts=${msg.ts ?? 'no-ts'} ` +
+          `parsed=${data !== null} ` +
+          `text=${JSON.stringify((msg.text ?? '').slice(0, 100))}`,
+      );
       if (!data) continue;
       parsed += 1;
 
@@ -111,7 +118,7 @@ export async function POST(request: Request) {
         id: `payment-noti-${data.slackTs}`,
         date_closed: data.date,
         name: data.fullName,
-        email: data.email,
+        email: data.email || null,
         cash_collected: data.amount,
         contracted_revenue: data.amount,
         source: 'Whop',

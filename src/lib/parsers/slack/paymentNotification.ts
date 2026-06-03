@@ -145,7 +145,10 @@ export function parsePaymentNotification(
   const rawEmail = fields['email'] ?? '';
   const rawAmount = fields['amount'] ?? '';
 
-  if (!fullName || !rawEmail) return null;
+  // Email is optional — some PAYMENT NOTIS messages omit it (e.g. Whop
+  // refund/chargeback events that only carry the customer name + amount).
+  // Full name is still required to identify the customer.
+  if (!fullName) return null;
 
   const email = stripMailto(rawEmail);
   const amount = parseFloat(rawAmount) || 0;

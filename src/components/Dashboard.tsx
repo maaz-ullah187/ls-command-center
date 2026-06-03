@@ -87,9 +87,22 @@ const FOLDERS: FolderDef[] = [
 ];
 
 export default function Dashboard() {
+  // Timeframe state — hoisted above useDashboardData so we can scope the
+  // date-window endpoints (revenue-buckets, cash-breakdown,
+  // revenue-composition) to the operator's selection.
+  // Default to "This Month" so they see current data on load.
+  const [dateRange, setDateRange] = useState<DateRange>(() => {
+    const now = new Date();
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const today = now.toISOString().split('T')[0];
+    return { start: monthStart, end: today, label: 'This Month' };
+  });
+
   // Pillar 0: data hydrated from /api/data/* via the switching layer in
   // src/lib/dataSources.ts. Falls back to mock when no pillar is wired yet.
-  const { leads: rawLeads, ads: rawAds, dailyMetrics: rawDailyMetrics, clients, expenses, youtubeVideos, instagramPosts, manychatData, backendRevenue, mondayClients, sheetRevenue } = useDashboardData();
+  // Main-dashboard endpoints (sheetRevenue / backendRevenue / mondayClients)
+  // are date-scoped via the hoisted dateRange above.
+  const { leads: rawLeads, ads: rawAds, dailyMetrics: rawDailyMetrics, clients, expenses, youtubeVideos, instagramPosts, manychatData, backendRevenue, mondayClients, sheetRevenue } = useDashboardData({ dateRange });
   const [xPosts, setXPosts] = useState<ContentPost[]>([]);
   useEffect(() => {
     fetch('/api/data/x').then(r => r.json()).then(d => { if (Array.isArray(d)) setXPosts(d); }).catch(() => {});
@@ -114,14 +127,6 @@ export default function Dashboard() {
       return next;
     });
   };
-
-  // Timeframe state — default to "This Month" so the operator sees current data on load
-  const [dateRange, setDateRange] = useState<DateRange>(() => {
-    const now = new Date();
-    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
-    const today = now.toISOString().split('T')[0];
-    return { start: monthStart, end: today, label: 'This Month' };
-  });
 
   // Mutable leads state (for call outcome updates). Hydrated from localStorage
   // on mount (client-only) so form edits survive a page reload. We start with

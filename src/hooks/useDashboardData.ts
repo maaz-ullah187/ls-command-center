@@ -64,7 +64,17 @@ function buildClientsFromLeads(_leads: Lead[]): Client[] {
   return [];
 }
 
-export function useDashboardData(): DashboardData {
+export interface UseDashboardDataOptions {
+  /**
+   * Date range for the date-scoped main-dashboard endpoints
+   * (revenue-buckets, cash-breakdown, revenue-composition). When omitted,
+   * the endpoints fall back to their own default window (current month).
+   */
+  dateRange?: { start: string; end: string };
+}
+
+export function useDashboardData(options: UseDashboardDataOptions = {}): DashboardData {
+  const { dateRange } = options;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [ads, setAds] = useState<Ad[]>([]);
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetrics[]>([]);
@@ -90,6 +100,13 @@ export function useDashboardData(): DashboardData {
     // Each fetch is independent — one failure doesn't block the others
     const safeFetch = (url: string) => fetch(url).then(r => r.json()).catch(() => null);
 
+    // Build the date-window query string for main-dashboard endpoints.
+    // The API uses `from` / `to` (not `start` / `end`); we map here so callers
+    // can use the dashboard's existing `DateRange { start, end, label }` shape.
+    const dateQs = dateRange
+      ? `?from=${encodeURIComponent(dateRange.start)}&to=${encodeURIComponent(dateRange.end)}`
+      : '';
+
     Promise.all([
       safeFetch('/api/data/leads'),
       safeFetch('/api/data/ads'),
@@ -101,9 +118,10 @@ export function useDashboardData(): DashboardData {
       // Main-dashboard endpoints (replace the legacy /api/data/* routes that
       // are no longer maintained). Response shapes differ, so each is
       // transformed below into the legacy types the dashboard already consumes.
-      safeFetch('/api/main/cash-breakdown'),       // ← replaces /api/data/backend-revenue
-      safeFetch('/api/main/revenue-composition'),  // ← replaces /api/data/monday-clients
-      safeFetch('/api/main/revenue-buckets'),      // ← replaces /api/data/sheet-revenue
+      // All three are date-scoped via the same dateRange.
+      safeFetch(`/api/main/cash-breakdown${dateQs}`),       // ← replaces /api/data/backend-revenue
+      safeFetch(`/api/main/revenue-composition${dateQs}`),  // ← replaces /api/data/monday-clients
+      safeFetch(`/api/main/revenue-buckets${dateQs}`),      // ← replaces /api/data/sheet-revenue
     ])
       .then(([leadsData, adsData, dailyData, expensesData, ytData, igData, mcData, cashData, compData, bucketsData]) => {
         if (cancelled) return;
@@ -181,7 +199,10 @@ export function useDashboardData(): DashboardData {
     return () => {
       cancelled = true;
     };
-  }, [tick]);
+    // Refetch whenever the date window shifts. We depend on the primitive
+    // strings (not the dateRange object) so a new object identity with the
+    // same dates doesn't cause a redundant fetch.
+  }, [tick, dateRange?.start, dateRange?.end]);
 
   // Build clients from leads: any Closed Won lead with cashCollected > 0
   // is a real client (Whop-enriched). Falls back to empty if no leads loaded.

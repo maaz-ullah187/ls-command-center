@@ -116,8 +116,9 @@ export function parsePaymentNotification(
   // Gate: only match PAYMENT NOTIS messages
   if (!msg.text?.includes('PAYMENT NOTIS')) return null;
 
-  const body = extractBlockText(msg);
-  if (!body) return null;
+  // PAYMENT NOTIS messages put the full field list (Action / Full Name /
+  // Email / Amount) directly in msg.text, so no block-text extraction needed.
+  const body = msg.text;
 
   const lines = body.split('\n');
 

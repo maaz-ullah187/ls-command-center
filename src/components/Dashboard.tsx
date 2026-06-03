@@ -184,7 +184,13 @@ export default function Dashboard() {
     });
   }, [rawAds, dateRange]);
   const filteredAds = useMemo(() => filterAdsByChannel(dateFilteredAds, channel), [dateFilteredAds, channel]);
-  const metrics = useMemo(() => aggregateMetrics(filteredLeads, filteredAds, dateFilteredDailyMetrics), [filteredLeads, filteredAds, dateFilteredDailyMetrics]);
+  // Pass sheetRevenue.newCash so ROAS reconciles to the revenue-buckets
+  // headline number (newCash / totalSpend) instead of the legacy
+  // Closed-Won-paidRevenue heuristic.
+  const metrics = useMemo(
+    () => aggregateMetrics(filteredLeads, filteredAds, dateFilteredDailyMetrics, sheetRevenue.newCash),
+    [filteredLeads, filteredAds, dateFilteredDailyMetrics, sheetRevenue.newCash],
+  );
   const alerts = useMemo(() => detectTrends(dateFilteredDailyMetrics), [dateFilteredDailyMetrics]);
 
   // Previous period comparison (first half vs second half of selected range)

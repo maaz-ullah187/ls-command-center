@@ -21,7 +21,18 @@ export interface AggregatedMetrics {
   dollarPerCall: number;
 }
 
-export function aggregateMetrics(leads: Lead[], ads: Ad[], dailyMetrics: DailyMetrics[]): AggregatedMetrics {
+export function aggregateMetrics(
+  leads: Lead[],
+  ads: Ad[],
+  dailyMetrics: DailyMetrics[],
+  /**
+   * Optional newCash for ROAS computation. When provided, ROAS is calculated
+   * as `newCash / totalSpend` instead of the previous Closed-Won-revenue
+   * heuristic. Source should be the dashboard's revenue-buckets newCash so
+   * ROAS reconciles with the headline new-cash number.
+   */
+  newCash?: number,
+): AggregatedMetrics {
   const totalSpend = ads.reduce((s, a) => s + a.spend, 0);
   const totalClicks = ads.reduce((s, a) => s + a.clicks, 0);
   const totalLeads = leads.length;
@@ -74,7 +85,13 @@ export function aggregateMetrics(leads: Lead[], ads: Ad[], dailyMetrics: DailyMe
     costPerSchedule: callsBooked > 0 ? totalSpend / callsBooked : 0,
     cpqc: callsShown > 0 ? totalSpend / callsShown : 0,
     costPerPurchase: callsClosed > 0 ? totalSpend / callsClosed : 0,
-    roas: totalSpend > 0 ? paidRevenue / totalSpend : 0,
+    // ROAS = newCash / totalSpend when newCash is passed in (sourced from
+    // revenue-buckets so it reconciles with the headline number). Falls back
+    // to the legacy Closed-Won-paidRevenue calc when newCash is not provided,
+    // so older callers don't regress.
+    roas: totalSpend > 0
+      ? (newCash !== undefined ? newCash / totalSpend : paidRevenue / totalSpend)
+      : 0,
     closeRate: callsShown > 0 ? (callsClosed / callsShown) * 100 : 0,
     showRate: pastBookedCalls > 0 ? (callsShown / pastBookedCalls) * 100 : 0,
     dollarPerCall: callsShown > 0 ? totalRevenue / callsShown : 0,

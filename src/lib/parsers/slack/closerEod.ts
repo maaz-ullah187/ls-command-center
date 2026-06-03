@@ -134,13 +134,28 @@ export function parseCloserEod(msg: SlackMessage): CloserEodData | null {
   console.log(`[eod-debug] blockText (first 400):`, JSON.stringify(blockText).slice(0, 400));
 
   // Gate: only process Closer EOD messages.
-  // Jacob's bot-posted EODs use a "SALES DEPARTMENT" header instead of
-  // "Closer EOD", so accept either marker.
-  if (!combined.includes('Closer EOD') && !combined.includes('SALES DEPARTMENT')) {
+  // Accept any of:
+  //   1. "Closer EOD" header  (original convention)
+  //   2. "SALES DEPARTMENT" header  (Jacob's bot-posted form)
+  //   3. Header-less manual submissions that carry all three structural
+  //      markers: Name:, Date:, and a Demo Call Metrics section.
+  //      `.includes('Name:')` matches inside bold-wrapped `*Name:*` too.
+  const hasHeader =
+    combined.includes('Closer EOD') || combined.includes('SALES DEPARTMENT');
+  const hasManualMarkers =
+    combined.includes('Name:') &&
+    combined.includes('Date:') &&
+    combined.includes('Demo Call Metrics');
+
+  if (!hasHeader && !hasManualMarkers) {
     console.log(
-      `[eod-debug] ts=${debugTs} SKIP: missing "Closer EOD" / "SALES DEPARTMENT" header`,
+      `[eod-debug] ts=${debugTs} SKIP: no header and missing manual markers ` +
+        `(Name/Date/Demo Call Metrics)`,
     );
     return null;
+  }
+  if (!hasHeader) {
+    console.log(`[eod-debug] ts=${debugTs} accepted via header-less manual markers`);
   }
 
   // Skip other EOD types and summaries

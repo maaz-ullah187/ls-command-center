@@ -98,11 +98,14 @@ export function useDashboardData(): DashboardData {
       safeFetch('/api/data/youtube'),
       safeFetch('/api/data/instagram'),
       safeFetch('/api/data/manychat'),
-      safeFetch('/api/data/backend-revenue'),
-      safeFetch('/api/data/monday-clients'),
-      safeFetch('/api/data/sheet-revenue'),
+      // Main-dashboard endpoints (replace the legacy /api/data/* routes that
+      // are no longer maintained). Response shapes differ, so each is
+      // transformed below into the legacy types the dashboard already consumes.
+      safeFetch('/api/main/cash-breakdown'),       // ← replaces /api/data/backend-revenue
+      safeFetch('/api/main/revenue-composition'),  // ← replaces /api/data/monday-clients
+      safeFetch('/api/main/headline'),             // ← replaces /api/data/sheet-revenue
     ])
-      .then(([leadsData, adsData, dailyData, expensesData, ytData, igData, mcData, brData, mondayData, sheetData]) => {
+      .then(([leadsData, adsData, dailyData, expensesData, ytData, igData, mcData, cashData, compData, headlineData]) => {
         if (cancelled) return;
         if (leadsData) setLeads(Array.isArray(leadsData) ? leadsData : []);
         if (adsData) setAds(Array.isArray(adsData) ? adsData : []);
@@ -111,9 +114,66 @@ export function useDashboardData(): DashboardData {
         if (ytData) setYoutubeVideos(Array.isArray(ytData) ? ytData : []);
         if (igData) setInstagramPosts(Array.isArray(igData) ? igData : []);
         if (mcData) setManychatData(mcData && mcData.leads ? mcData : emptyMC);
-        if (brData && typeof brData.totalBackend === 'number') setBackendRevenue(brData);
-        if (mondayData) setMondayClients(Array.isArray(mondayData) ? mondayData : []);
-        if (sheetData && typeof sheetData.newCash === 'number') setSheetRevenue(sheetData);
+
+        // ─── backendRevenue ← /api/main/cash-breakdown ─────────────────────
+        // cash-breakdown returns { total, bySource[], byOffer[] }. Map the
+        // total into totalBackend so legacy cards keep reading the right
+        // headline number. The per-program breakdown (newCash / renewals /
+        // upsells / arCollected) isn't directly available from this endpoint
+        // — those finer splits come from revenue-composition below and are
+        // mirrored here so consumers that pull from backendRevenue still work.
+        if (cashData && typeof cashData.total === 'number') {
+          const slices = (compData?.slices ?? []) as Array<{ category: string; amount: number }>;
+          const sliceAmt = (cat: string) =>
+            slices.find(s => s.category === cat)?.amount ?? 0;
+          setBackendRevenue({
+            newCash:     sliceAmt('new'),
+            renewals:    sliceAmt('renewals_upsells'),
+            upsells:     0, // renewals and upsells are collapsed in revenue-composition
+            arCollected: sliceAmt('ar'),
+            totalBackend: cashData.total,
+            breakdown: {
+              whopInitial: 0,
+              whopRenewal: 0,
+              whopUpgrade: 0,
+              whopOther: 0,
+              slackNewClientCash: 0,
+              slackPaymentSucceeded: 0,
+            },
+          });
+        }
+
+        // ─── mondayClients ← /api/main/revenue-composition ─────────────────
+        // Note: revenue-composition returns donut slices, not a per-client
+        // list. The MondayClient[] shape can't be derived from it, so
+        // BackEndTab (which renders per-client rows) will show empty until
+        // a real client-list endpoint is wired up.
+        setMondayClients([]);
+
+        // ─── sheetRevenue ← /api/main/headline + /api/main/revenue-composition ─
+        // headline gives the canonical totalCash / refunded.
+        // revenue-composition gives the per-category split the legacy UI needs
+        // (new / renewals / upsells / ar / mastermind / refunds).
+        if (headlineData && typeof headlineData.totalCash === 'number') {
+          const slices = (compData?.slices ?? []) as Array<{ category: string; amount: number }>;
+          const sliceAmt = (cat: string) =>
+            slices.find(s => s.category === cat)?.amount ?? 0;
+          const window = headlineData.window ?? {};
+          const monthFromWindow = typeof window.from === 'string' ? window.from.slice(0, 7) : '';
+          setSheetRevenue({
+            month: monthFromWindow,
+            newCash:      sliceAmt('new'),
+            refunds:      Math.abs(sliceAmt('refund') || headlineData.refunded || 0),
+            ar:           sliceAmt('ar'),
+            renewals:     sliceAmt('renewals_upsells'),
+            upgrades:     0, // renewals + upgrades collapsed into renewals_upsells
+            mastermind:   sliceAmt('mastermind'),
+            totalRevenue: headlineData.approved ?? 0,
+            netRevenue:   headlineData.totalCash, // approved − refunded
+            clientCount:        headlineData.count ?? 0,
+            activeClientCount:  headlineData.count ?? 0,
+          });
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

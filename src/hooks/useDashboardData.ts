@@ -103,9 +103,9 @@ export function useDashboardData(): DashboardData {
       // transformed below into the legacy types the dashboard already consumes.
       safeFetch('/api/main/cash-breakdown'),       // ← replaces /api/data/backend-revenue
       safeFetch('/api/main/revenue-composition'),  // ← replaces /api/data/monday-clients
-      safeFetch('/api/main/headline'),             // ← replaces /api/data/sheet-revenue
+      safeFetch('/api/main/revenue-buckets'),      // ← replaces /api/data/sheet-revenue
     ])
-      .then(([leadsData, adsData, dailyData, expensesData, ytData, igData, mcData, cashData, compData, headlineData]) => {
+      .then(([leadsData, adsData, dailyData, expensesData, ytData, igData, mcData, cashData, compData, bucketsData]) => {
         if (cancelled) return;
         if (leadsData) setLeads(Array.isArray(leadsData) ? leadsData : []);
         if (adsData) setAds(Array.isArray(adsData) ? adsData : []);
@@ -150,28 +150,27 @@ export function useDashboardData(): DashboardData {
         // a real client-list endpoint is wired up.
         setMondayClients([]);
 
-        // ─── sheetRevenue ← /api/main/headline + /api/main/revenue-composition ─
-        // headline gives the canonical totalCash / refunded.
-        // revenue-composition gives the per-category split the legacy UI needs
-        // (new / renewals / upsells / ar / mastermind / refunds).
-        if (headlineData && typeof headlineData.totalCash === 'number') {
-          const slices = (compData?.slices ?? []) as Array<{ category: string; amount: number }>;
-          const sliceAmt = (cat: string) =>
-            slices.find(s => s.category === cat)?.amount ?? 0;
-          const window = headlineData.window ?? {};
-          const monthFromWindow = typeof window.from === 'string' ? window.from.slice(0, 7) : '';
+        // ─── sheetRevenue ← /api/main/revenue-buckets ──────────────────────
+        // revenue-buckets returns the per-category split AND headline totals
+        // straight from t07_income_processors, so the previous combo with
+        // revenue-composition is no longer needed for these fields.
+        // Shape: { monthYear, newCash, ar, upsellRenewal, mastermind,
+        //          uncategorized, refunds, grossInflow, netRevenue, ... }
+        if (bucketsData && typeof bucketsData.netRevenue === 'number') {
           setSheetRevenue({
-            month: monthFromWindow,
-            newCash:      sliceAmt('new'),
-            refunds:      Math.abs(sliceAmt('refund') || headlineData.refunded || 0),
-            ar:           sliceAmt('ar'),
-            renewals:     sliceAmt('renewals_upsells'),
-            upgrades:     0, // renewals + upgrades collapsed into renewals_upsells
-            mastermind:   sliceAmt('mastermind'),
-            totalRevenue: headlineData.approved ?? 0,
-            netRevenue:   headlineData.totalCash, // approved − refunded
-            clientCount:        headlineData.count ?? 0,
-            activeClientCount:  headlineData.count ?? 0,
+            month: bucketsData.monthYear ?? '',
+            newCash:      bucketsData.newCash ?? 0,
+            refunds:      bucketsData.refunds ?? 0,
+            ar:           bucketsData.ar ?? 0,
+            renewals:     bucketsData.upsellRenewal ?? 0,
+            upgrades:     0, // upsells + renewals collapsed in revenue-buckets
+            mastermind:   bucketsData.mastermind ?? 0,
+            totalRevenue: bucketsData.grossInflow ?? 0,
+            netRevenue:   bucketsData.netRevenue,
+            // revenue-buckets doesn't return per-client counts; consumers that
+            // need them should source from a dedicated clients endpoint.
+            clientCount:        0,
+            activeClientCount:  0,
           });
         }
       })

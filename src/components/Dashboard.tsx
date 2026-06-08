@@ -39,8 +39,9 @@ import ChannelIcon from './ChannelIcon';
 import CEOKPIBar from './CEOKPIBar';
 import CompetitorTracker from './CompetitorTracker';
 import BillingTracker from './BillingTracker';
+import ProjectionsTab from './tabs/ProjectionsTab';
 
-type MainTab = 'dashboard' | 'reports' | 'crm' | 'sales-calls' | 'closers' | 'commissions' | 'billing' | 'expenses-mercury' | 'integrations' | 'system-health' | 'competitors';
+type MainTab = 'dashboard' | 'reports' | 'projections' | 'crm' | 'sales-calls' | 'closers' | 'commissions' | 'billing' | 'expenses-mercury' | 'integrations' | 'system-health' | 'competitors';
 type BusinessView = 'all' | 'frontend' | 'backend';
 
 interface TabDef {
@@ -61,6 +62,7 @@ const FOLDERS: FolderDef[] = [
     tabs: [
       { key: 'dashboard', label: 'Dashboard', icon: '\u{1F4CA}' },
       { key: 'reports', label: 'Source Breakdown', icon: '\u{1F3AF}' },
+      { key: 'projections', label: 'Projections', icon: '\u{1F3AF}' },
     ],
   },
   {
@@ -518,6 +520,18 @@ export default function Dashboard() {
               leads={filteredLeads}
               ads={filteredAds}
               onViewLeads={(leads, title) => setLeadModalData({ leads, title })}
+            />
+          )}
+
+          {/* Projections Tab — Sales Funnel Financial Model.
+              Actuals come from the dashboard's already-loaded data; projection
+              targets are saved per-metric to funnel_projections in Supabase. */}
+          {activeTab === 'projections' && (
+            <ProjectionsTab
+              leads={filteredLeads}
+              ads={filteredAds}
+              sheetRevenue={sheetRevenue}
+              dateRange={dateRange}
             />
           )}
 

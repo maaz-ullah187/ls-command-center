@@ -8,10 +8,10 @@ export const dynamic = 'force-dynamic';
  *
  * Returns the 14-row Pace vs Projection table that mirrors the operator's sheet:
  *
- *   contracted     — Program A FE / Program B BE / Program C
- *   cash_collected — Upfront cash collected per offer (% UFCC × contracted)
- *   receivables    — ProgB BE AR / Backend Ascensions+Renewals / Mastermind Tickets
- *   refunds        — ProgA Refunds / ProgB Refunds (negative)
+ *   contracted     — Patient Trust System (single $7,000 offer)
+ *   cash_collected — Upfront cash collected (% UFCC × contracted)
+ *   receivables    — Patient Trust System AR / Backend Ascensions+Renewals / Mastermind Tickets
+ *   refunds        — Total Refunds (single row, stored positive)
  *   expenses       — Overhead / Labor / Marketing
  *
  * Targets come from t21_monthly_projections (saved per month). When no row
@@ -124,30 +124,18 @@ function statusForRefunds(actual: number, target: number): Status {
 // Same for t06_deals_closed.offer. We bucket via case-insensitive substring match.
 // the operator can refine/correct via card feedback.
 
-// Customize these matchers for your offer naming conventions. The defaults
-// match anything containing "program a" / "program b" but you'll want to add
-// your real offer names + abbreviations.
-const matchesLLfe = (offer: string) => {
-  const o = offer.toLowerCase();
-  return o.includes('program a');
-};
-
-const matchesLSbe = (offer: string) => {
+// Single-offer model: Patient Trust System ($7,000). Any non-mastermind deal
+// attributes to PTS — we used to split across Program A / B / C but the
+// business now sells one flagship offer.
+const matchesPTS = (offer: string) => {
   const o = offer.toLowerCase();
   if (o.includes('mastermind')) return false;
-  return o.includes('program b');
-};
-
-const matchesAI = (offer: string) => {
-  const o = offer.toLowerCase();
-  // Per the operator: Program C bucket = Program C Build + Program C Coaching + Program C
+  // Match the canonical name plus common abbreviations the team uses.
   return (
-    o.includes('program c') ||
-    o.includes('ai inst') ||
-    o.includes('ai agent') ||
-    o.includes('ai coaching') ||
-    o.includes('agency') ||
-    (o.includes('ai') && (o.includes('install') || o.includes('done') || o.includes('dfy') || o.includes('build')))
+    o.includes('patient trust') ||
+    o.includes('pts') ||
+    // Fallback: any non-mastermind offer in t06 belongs to the single program.
+    o.trim().length > 0
   );
 };
 
@@ -163,9 +151,7 @@ const matchesMastermind = (offer: string) => offer.toLowerCase().includes('maste
  * defaults-only fallback for fresh months.
  */
 const DEFAULT_UNIT_PRICES: Record<string, number> = {
-  'Program A FE': 5000,
-  'Program B BE': 20000,
-  'Program C': 15000,
+  'Patient Trust System': 7000,
 };
 
 const resolveUnitPrice = (metric: string, saved: number | string | null | undefined): number => {
@@ -179,9 +165,7 @@ const resolveUnitPrice = (metric: string, saved: number | string | null | undefi
  * computes the upfront $ target.
  */
 const CASH_TO_CONTRACTED: Record<string, string> = {
-  'Program A Upfront': 'Program A FE',
-  'Program B Upfront': 'Program B BE',
-  'Program C Upfront': 'Program C',
+  'Patient Trust System Upfront': 'Patient Trust System',
 };
 
 interface Tmpl {
@@ -196,16 +180,13 @@ interface Tmpl {
 }
 
 const TEMPLATE: Tmpl[] = [
-  // 1. Contracted revenue — units AND price/unit are both editable (price defaults from DEFAULT_UNIT_PRICES)
-  { section: 'contracted', metric: 'Program A FE',     kind: 'revenue', defaultUnits: 20 },
-  { section: 'contracted', metric: 'Program B BE',   kind: 'revenue', defaultUnits: 8 },
-  { section: 'contracted', metric: 'Program C',      kind: 'revenue', defaultUnits: 30 },
+  // 1. Contracted revenue — single offer (Patient Trust System @ $7,000).
+  //    Units AND price/unit both editable; price defaults from DEFAULT_UNIT_PRICES.
+  { section: 'contracted', metric: 'Patient Trust System', kind: 'revenue', defaultUnits: 20 },
   // 2. Cash collected upfront — only `% UFCC` editable; target $ = pct × contracted target
-  { section: 'cash_collected', metric: 'Program A Upfront',   kind: 'revenue', defaultPct: 0.6 },
-  { section: 'cash_collected', metric: 'Program B Upfront', kind: 'revenue', defaultPct: 0.5 },
-  { section: 'cash_collected', metric: 'Program C Upfront', kind: 'revenue', defaultPct: 0.6 },
+  { section: 'cash_collected', metric: 'Patient Trust System Upfront', kind: 'revenue', defaultPct: 0.6 },
   // 3. Receivables / backend — AR row uses base × pct; others are flat $
-  { section: 'receivables', metric: 'Program B BE AR',       kind: 'revenue', defaultPct: 0.75, defaultArBase: 135484 },
+  { section: 'receivables', metric: 'Patient Trust System AR',     kind: 'revenue', defaultPct: 0.75, defaultArBase: 135484 },
   { section: 'receivables', metric: 'Backend Ascensions+Renewals', kind: 'revenue', defaultValue: 60000 },
   { section: 'receivables', metric: 'Mastermind Tickets',          kind: 'revenue', defaultValue: 60000 },
   // 4. Refunds — single row (stored positive, status flipped: lower actuals = better)
@@ -263,7 +244,7 @@ function computeTargetValue(args: {
     const parent = parentMetric ? (contractedTargets.get(parentMetric) ?? 0) : 0;
     return Number(target_pct ?? 0) * parent;
   }
-  if (section === 'receivables' && metric === 'Program B BE AR') {
+  if (section === 'receivables' && metric === 'Patient Trust System AR') {
     return Number(ar_base ?? 0) * Number(target_pct ?? 0);
   }
   return Number(flat_value ?? 0);
@@ -293,13 +274,9 @@ export async function GET(req: NextRequest) {
   // 2. Compute actuals from source tables for the month.
   const bounds = monthBounds(month);
   const actuals = {
-    contractedLLfe: 0,
-    contractedLSbe: 0,
-    contractedAI: 0,
-    cashLLfe: 0,
-    cashLSbe: 0,
-    cashAI: 0,
-    arLSbe: 0,
+    contractedPTS: 0,    // Patient Trust System contracted revenue
+    cashPTS: 0,          // Patient Trust System upfront cash collected
+    arPTS: 0,            // Patient Trust System receivables (account_receivable)
     ascRenewals: 0,
     mastermind: 0,
     refundsTotal: 0,
@@ -360,15 +337,9 @@ export async function GET(req: NextRequest) {
       // don't reliably tag mastermind clients. Pulling from t07 below.
       if (matchesMastermind(offer)) continue;
 
-      if (matchesLLfe(offer)) {
-        actuals.contractedLLfe += contracted;
-        actuals.cashLLfe += cash;
-      } else if (matchesAI(offer)) {
-        actuals.contractedAI += contracted;
-        actuals.cashAI += cash;
-      } else if (matchesLSbe(offer)) {
-        actuals.contractedLSbe += contracted;
-        actuals.cashLSbe += cash;
+      if (matchesPTS(offer)) {
+        actuals.contractedPTS += contracted;
+        actuals.cashPTS += cash;
       }
     }
 
@@ -402,9 +373,8 @@ export async function GET(req: NextRequest) {
       if (status !== 'paid') continue;
 
       if (ptype === 'account_receivable') {
-        // All AR is treated as ProgB BE AR — ProgA is full-pay, AI is full-pay,
-        // mastermind has its own row. Per the operator's sheet convention.
-        actuals.arLSbe += amt;
+        // Single-offer model: all AR belongs to Patient Trust System.
+        actuals.arPTS += amt;
       } else if (ptype === 'upsell_renewal') {
         actuals.ascRenewals += amt;
       } else if (ptype === 'mastermind') {
@@ -427,13 +397,9 @@ export async function GET(req: NextRequest) {
 
   const actualForKey = (key: string): number => {
     switch (key) {
-      case 'contracted|Program A FE':         return actuals.contractedLLfe;
-      case 'contracted|Program B BE':       return actuals.contractedLSbe;
-      case 'contracted|Program C':          return actuals.contractedAI;
-      case 'cash_collected|Program A Upfront':   return actuals.cashLLfe;
-      case 'cash_collected|Program B Upfront': return actuals.cashLSbe;
-      case 'cash_collected|Program C Upfront': return actuals.cashAI;
-      case 'receivables|Program B BE AR':      return actuals.arLSbe;
+      case 'contracted|Patient Trust System':         return actuals.contractedPTS;
+      case 'cash_collected|Patient Trust System Upfront': return actuals.cashPTS;
+      case 'receivables|Patient Trust System AR':     return actuals.arPTS;
       case 'receivables|Backend Ascensions+Renewals': return actuals.ascRenewals;
       case 'receivables|Mastermind Tickets':          return actuals.mastermind;
       case 'refunds|Total Refunds':            return actuals.refundsTotal;

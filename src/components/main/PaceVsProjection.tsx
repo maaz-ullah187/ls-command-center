@@ -168,7 +168,7 @@ export default function PaceVsProjection() {
         value2: '',
         reason: r.reason ?? '',
       });
-    } else if (r.section === 'receivables' && r.metric === 'Program B BE AR') {
+    } else if (r.section === 'receivables' && r.metric === 'Patient Trust System AR') {
       setDraft({
         value: String(r.ar_base ?? ''),
         value2: r.target_pct != null ? String(r.target_pct * 100) : '',
@@ -204,7 +204,7 @@ export default function PaceVsProjection() {
         payload.target_pct = draft.value === '' ? null : Number(draft.value) / 100;
         payload.unit_price = r.unit_price;
         payload.ar_base = r.ar_base;
-      } else if (r.section === 'receivables' && r.metric === 'Program B BE AR') {
+      } else if (r.section === 'receivables' && r.metric === 'Patient Trust System AR') {
         payload.target_units = r.target_units;
         payload.ar_base = draft.value === '' ? null : Number(draft.value);
         payload.target_pct = draft.value2 === '' ? null : Number(draft.value2) / 100;
@@ -590,7 +590,7 @@ interface EditInputsProps {
 function EditInputs({ row, draft, setDraft, saving, onSave, onCancel }: EditInputsProps) {
   const isContracted = row.section === 'contracted';
   const isCash = row.section === 'cash_collected';
-  const isAR = row.section === 'receivables' && row.metric === 'Program B BE AR';
+  const isAR = row.section === 'receivables' && row.metric === 'Patient Trust System AR';
   const isFlat = !isContracted && !isCash && !isAR;
 
   return (

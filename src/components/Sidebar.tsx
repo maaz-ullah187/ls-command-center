@@ -17,6 +17,7 @@ import {
   Crosshair,
   Database,
   ChevronRight,
+  Target,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -53,6 +54,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Today',          href: '/today', Icon: Sun,           accent: 'text-amber-400' },
       { label: 'Week',           href: '/week',  Icon: CalendarDays,  accent: 'text-emerald-400' },
       { label: 'Month',          href: '/month', Icon: CalendarRange, accent: 'text-purple-400' },
+      { label: 'Projections',    href: '/projections', Icon: Target,  accent: 'text-pink-400' },
     ],
   },
   {

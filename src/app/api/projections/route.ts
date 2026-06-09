@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
  *
  *   contracted     — Patient Trust System (single $7,000 offer)
  *   cash_collected — Upfront cash collected (% UFCC × contracted)
- *   receivables    — Patient Trust System AR / Backend Ascensions+Renewals / Mastermind Tickets
+ *   receivables    — MRR (account_receivable) / Deposit Revenue (deposit payments)
  *   refunds        — Total Refunds (single row, stored positive)
  *   expenses       — Overhead / Labor / Marketing
  *
@@ -185,10 +185,11 @@ const TEMPLATE: Tmpl[] = [
   { section: 'contracted', metric: 'Patient Trust System', kind: 'revenue', defaultUnits: 20 },
   // 2. Cash collected upfront — only `% UFCC` editable; target $ = pct × contracted target
   { section: 'cash_collected', metric: 'Patient Trust System Upfront', kind: 'revenue', defaultPct: 0.6 },
-  // 3. Receivables / backend — AR row uses base × pct; others are flat $
-  { section: 'receivables', metric: 'Patient Trust System AR',     kind: 'revenue', defaultPct: 0.75, defaultArBase: 135484 },
-  { section: 'receivables', metric: 'Backend Ascensions+Renewals', kind: 'revenue', defaultValue: 60000 },
-  { section: 'receivables', metric: 'Mastermind Tickets',          kind: 'revenue', defaultValue: 60000 },
+  // 3. Receivables / backend — flat $ targets, both sourced from t07_income_processors.
+  //    MRR             = sum of paid rows where payment_type='account_receivable'
+  //    Deposit Revenue = sum of paid rows where the offer/product name matches a deposit
+  { section: 'receivables', metric: 'MRR',             kind: 'revenue', defaultValue: 60000 },
+  { section: 'receivables', metric: 'Deposit Revenue', kind: 'revenue', defaultValue: 20000 },
   // 4. Refunds — single row (stored positive, status flipped: lower actuals = better)
   { section: 'refunds', metric: 'Total Refunds', kind: 'refund', defaultValue: 20000 },
   // 5. Operating expenses — flat $ caps
@@ -244,9 +245,8 @@ function computeTargetValue(args: {
     const parent = parentMetric ? (contractedTargets.get(parentMetric) ?? 0) : 0;
     return Number(target_pct ?? 0) * parent;
   }
-  if (section === 'receivables' && metric === 'Patient Trust System AR') {
-    return Number(ar_base ?? 0) * Number(target_pct ?? 0);
-  }
+  // (No AR base × pct rows after the receivables simplification — MRR and
+  // Deposit Revenue are both flat-$ targets.)
   return Number(flat_value ?? 0);
 }
 
@@ -276,9 +276,8 @@ export async function GET(req: NextRequest) {
   const actuals = {
     contractedPTS: 0,    // Patient Trust System contracted revenue
     cashPTS: 0,          // Patient Trust System upfront cash collected
-    arPTS: 0,            // Patient Trust System receivables (account_receivable)
-    ascRenewals: 0,
-    mastermind: 0,
+    mrr: 0,              // Monthly Recurring Revenue (t07 payment_type='account_receivable')
+    depositRevenue: 0,   // Stripe/deposit payments (t07 offer ILIKE '%deposit%')
     refundsTotal: 0,
     expOverhead: 0,
     expLabor: 0,
@@ -372,14 +371,19 @@ export async function GET(req: NextRequest) {
       }
       if (status !== 'paid') continue;
 
-      if (ptype === 'account_receivable') {
-        // Single-offer model: all AR belongs to Patient Trust System.
-        actuals.arPTS += amt;
-      } else if (ptype === 'upsell_renewal') {
-        actuals.ascRenewals += amt;
-      } else if (ptype === 'mastermind') {
-        actuals.mastermind += amt;
+      // Deposit detection runs BEFORE the AR bucket so a deposit booked as
+      // account_receivable still lands in Deposit Revenue (and not double-counted).
+      const offer = String(row.offer ?? '').toLowerCase();
+      const isDeposit = offer.includes('deposit');
+
+      if (isDeposit) {
+        actuals.depositRevenue += amt;
+      } else if (ptype === 'account_receivable') {
+        actuals.mrr += amt;
       }
+      // Note: upsell_renewal + mastermind payment_types are intentionally
+      // ignored here — they're tracked in Revenue Composition but no longer
+      // surfaced in the Pace vs Projection table.
     }
 
     // ─── t08_expenses (operating expenses by bucket) ──
@@ -399,9 +403,8 @@ export async function GET(req: NextRequest) {
     switch (key) {
       case 'contracted|Patient Trust System':         return actuals.contractedPTS;
       case 'cash_collected|Patient Trust System Upfront': return actuals.cashPTS;
-      case 'receivables|Patient Trust System AR':     return actuals.arPTS;
-      case 'receivables|Backend Ascensions+Renewals': return actuals.ascRenewals;
-      case 'receivables|Mastermind Tickets':          return actuals.mastermind;
+      case 'receivables|MRR':             return actuals.mrr;
+      case 'receivables|Deposit Revenue': return actuals.depositRevenue;
       case 'refunds|Total Refunds':            return actuals.refundsTotal;
       case 'expenses|Overhead':                return actuals.expOverhead;
       case 'expenses|Labor / Program Coaches': return actuals.expLabor;

@@ -168,12 +168,6 @@ export default function PaceVsProjection() {
         value2: '',
         reason: r.reason ?? '',
       });
-    } else if (r.section === 'receivables' && r.metric === 'Patient Trust System AR') {
-      setDraft({
-        value: String(r.ar_base ?? ''),
-        value2: r.target_pct != null ? String(r.target_pct * 100) : '',
-        reason: r.reason ?? '',
-      });
     } else {
       setDraft({ value: String(r.target_value), value2: '', reason: r.reason ?? '' });
     }
@@ -204,11 +198,6 @@ export default function PaceVsProjection() {
         payload.target_pct = draft.value === '' ? null : Number(draft.value) / 100;
         payload.unit_price = r.unit_price;
         payload.ar_base = r.ar_base;
-      } else if (r.section === 'receivables' && r.metric === 'Patient Trust System AR') {
-        payload.target_units = r.target_units;
-        payload.ar_base = draft.value === '' ? null : Number(draft.value);
-        payload.target_pct = draft.value2 === '' ? null : Number(draft.value2) / 100;
-        payload.unit_price = r.unit_price;
       } else {
         payload.target_value = Number(draft.value);
         payload.target_units = r.target_units;
@@ -590,8 +579,7 @@ interface EditInputsProps {
 function EditInputs({ row, draft, setDraft, saving, onSave, onCancel }: EditInputsProps) {
   const isContracted = row.section === 'contracted';
   const isCash = row.section === 'cash_collected';
-  const isAR = row.section === 'receivables' && row.metric === 'Patient Trust System AR';
-  const isFlat = !isContracted && !isCash && !isAR;
+  const isFlat = !isContracted && !isCash;
 
   return (
     <div className="inline-flex items-center gap-1.5">
@@ -612,23 +600,6 @@ function EditInputs({ row, draft, setDraft, saving, onSave, onCancel }: EditInpu
           suffix="%"
           width="w-20"
         />
-      )}
-      {isAR && (
-        <>
-          <NumberInput
-            autoFocus
-            value={draft.value}
-            onChange={(v) => setDraft({ ...draft, value: v })}
-            prefix="$"
-            width="w-28"
-          />
-          <NumberInput
-            value={draft.value2}
-            onChange={(v) => setDraft({ ...draft, value2: v })}
-            suffix="%"
-            width="w-16"
-          />
-        </>
       )}
       {isFlat && (
         <NumberInput

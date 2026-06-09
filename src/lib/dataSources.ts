@@ -189,8 +189,67 @@ export async function getLeads(): Promise<Lead[]> {
 }
 
 export async function getAds(): Promise<Ad[]> {
-  // Always fetch live from Meta — Supabase ads table has stale synced data
-  // and the Meta API with pagination is fast enough (~5s).
+  // Supabase-first: read from t02_ads (populated by /api/sync/meta).
+  // The Meta API has no date-range parameter on the request the dashboard
+  // makes today, so previous behavior of always hitting Meta meant the
+  // returned rows ignored whatever date window the UI applied. Reading
+  // from t02_ads lets per-day rows flow through (each row has a `date`
+  // column the dashboard filters on).
+  //
+  // Fallback chain: Supabase rows → live Meta API → mock data.
+  const sb = await getServerSupabaseAsync();
+  if (sb) {
+    try {
+      const { count } = await sb.from('t02_ads').select('id', { count: 'exact', head: true });
+      if (count && count > 0) {
+        const allRows: any[] = [];
+        const PAGE_SIZE = 1000;
+        for (let offset = 0; offset < count; offset += PAGE_SIZE) {
+          const { data: page } = await sb
+            .from('t02_ads')
+            .select('*')
+            .range(offset, offset + PAGE_SIZE - 1);
+          if (page) allRows.push(...page);
+        }
+
+        // Map snake_case t02_ads rows → camelCase Ad objects.
+        // Mirror of `adToRow` in src/app/api/sync/meta/route.ts.
+        const ads: Ad[] = allRows.map((r: any) => ({
+          id: r.id,
+          date: r.date ?? undefined,
+          adAccountName: r.ad_account_name ?? '',
+          campaignName: r.campaign_name ?? '',
+          adSetName: r.ad_set_name ?? '',
+          adName: r.ad_name ?? '',
+          campaignId: r.campaign_id ?? undefined,
+          adSetId: r.ad_set_id ?? undefined,
+          adId: r.ad_id ?? undefined,
+          channel: r.channel ?? 'Facebook Ads',
+          spend: Number(r.spend ?? 0),
+          impressions: Number(r.impressions ?? 0),
+          clicks: Number(r.clicks ?? 0),
+          leads: Number(r.leads ?? 0),
+          scheduledCalls: Number(r.scheduled_calls ?? 0),
+          qualifiedCalls: Number(r.qualified_calls ?? 0),
+          purchases: Number(r.purchases ?? 0),
+          revenue: Number(r.revenue ?? 0),
+          active: r.active ?? true,
+          costPerLead: r.cost_per_lead ?? undefined,
+          metaLeads: r.meta_leads ?? undefined,
+          costPerResult: r.cost_per_result ?? undefined,
+          actions: r.actions ?? undefined,
+          actionValues: r.action_values ?? undefined,
+        }));
+
+        const overrides = await fetchOverrides('t02_ads');
+        return applyOverrides(ads, overrides, 't02_ads');
+      }
+    } catch (e) {
+      console.error('[getAds] Supabase t02_ads read failed, falling back to Meta:', e);
+    }
+  }
+
+  // Fallback 1: live Meta API
   const metaToken = process.env.META_ACCESS_TOKEN;
   const metaAccountId = process.env.META_AD_ACCOUNT_ID;
   if (metaToken && metaAccountId) {
@@ -206,7 +265,7 @@ export async function getAds(): Promise<Ad[]> {
     }
   }
 
-  // Final fallback: mock data
+  // Fallback 2: mock data
   const metaConnected = !!(process.env.META_ACCESS_TOKEN && process.env.META_AD_ACCOUNT_ID);
   const base = firstNonEmpty(null, mockAds, metaConnected);
   const overrides = await fetchOverrides('t02_ads');

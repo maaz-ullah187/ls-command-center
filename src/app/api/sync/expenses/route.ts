@@ -1,8 +1,11 @@
 // Sync worker: t08_expenses table
-// Source: Mercury Banking API (configured checking account) → t08_expenses
+// Source: Mercury Banking API — PPS Opex account → t08_expenses
 // Schedule: daily 08:00 UTC (≈ 4 AM ET) via Vercel Cron
 // Pulls last 90 days of outgoing transactions and upserts on transaction id,
 // so history is always complete and late-posting transactions backfill cleanly.
+//
+// Account is selected via MERCURY_PPS_ACCOUNT_ID (no more account-name /
+// last-four discovery). Auth still goes through MERCURY_API_KEY.
 //
 // Categorization lives in `src/lib/mappers/mercury.ts#categorizeExpense`.
 // 6 buckets: labour / marketing / overhead / mastermind / other / unknown.
@@ -18,6 +21,8 @@ export async function POST() {
   const result = await runSync('expenses', async (sb) => {
     const mercuryKey = process.env.MERCURY_API_KEY;
     if (!mercuryKey) throw new Error('MERCURY_API_KEY not set');
+    const ppsAccountId = process.env.MERCURY_PPS_ACCOUNT_ID;
+    if (!ppsAccountId) throw new Error('MERCURY_PPS_ACCOUNT_ID not set');
 
     const { fetchMercuryExpenses } = await import('@/lib/mappers/mercury');
 
@@ -28,7 +33,12 @@ export async function POST() {
     const startDate = ninetyDaysAgo.toISOString().slice(0, 10);
     const endDate = now.toISOString().slice(0, 10);
 
-    const summary = await fetchMercuryExpenses(mercuryKey, startDate, endDate);
+    const summary = await fetchMercuryExpenses(
+      mercuryKey,
+      ppsAccountId,
+      startDate,
+      endDate,
+    );
 
     if (summary.transactions.length === 0) {
       return { rowsUpserted: 0, rowsSkipped: 0 };

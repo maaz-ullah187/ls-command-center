@@ -1,14 +1,19 @@
 /**
- * Mercury Banking API mapper — pulls EXPENSES ONLY from one configured
+ * Mercury Banking API mapper — pulls EXPENSES ONLY from the PPS Opex
  * checking account. NOT tracking income — only outgoing transactions.
  *
- * Base URL: https://api.mercury.com/api/v1
+ * Endpoint: https://api.mercury.com/api/v1/account/{accountId}/transactions
  * Auth: Bearer token
  *
- * Configure which Mercury account to read via env vars:
- *   MERCURY_API_KEY        — token from Mercury settings
- *   MERCURY_ACCOUNT_NAME   — substring match against account name
- *   MERCURY_ACCOUNT_LAST4  — substring match against account last-four
+ * Configure via env vars (read by the sync route, passed in here):
+ *   MERCURY_API_KEY          — token from Mercury settings (Bearer auth)
+ *   MERCURY_PPS_ACCOUNT_ID   — UUID of the PPS Opex account
+ *
+ * Mapping (per spec):
+ *   id              → transaction id (idempotency key for upsert)
+ *   counterpartyName → vendor / transaction_name
+ *   |amount|        → expense amount (only negative amounts retained as expenses)
+ *   createdAt       → date (YYYY-MM-DD)
  */
 
 export interface MercuryTransaction {
@@ -126,43 +131,28 @@ function isInternalTransfer(t: any): boolean {
 
 export async function fetchMercuryExpenses(
   apiKey: string,
+  accountId: string,
   startDate?: string,
   endDate?: string,
 ): Promise<MercuryExpenseSummary> {
   try {
-    // 1. Resolve the ProgB account. STRICT — no fallback to accounts[0].
-    const accounts = await fetchMercuryAccounts(apiKey);
-    if (accounts.length === 0) {
-      throw new Error('Mercury returned zero accounts — check MERCURY_API_KEY');
-    }
-    // Configure which Mercury account to pull. Set MERCURY_ACCOUNT_NAME or
-    // MERCURY_ACCOUNT_LAST4 in your env so the mapper knows which checking
-    // account to read transactions from.
-    const wantName = (process.env.MERCURY_ACCOUNT_NAME ?? '').toLowerCase();
-    const wantLast4 = process.env.MERCURY_ACCOUNT_LAST4 ?? '';
-    const lsAccount = accounts.find(
-      a => (wantName && a.name.toLowerCase().includes(wantName)) ||
-           (wantLast4 && a.name.includes(wantLast4)),
-    );
-    if (!lsAccount) {
-      throw new Error(
-        `Configured Mercury account not found. ` +
-        `Accounts visible: ${accounts.map(a => a.name).join(', ')}`,
-      );
+    if (!accountId) {
+      throw new Error('Mercury account id is required (set MERCURY_PPS_ACCOUNT_ID)');
     }
 
-    // 2. Pre-fetch the card roster so we can attribute debit-card transactions
+    // 1. Pre-fetch the card roster so we can attribute debit-card transactions
     //    to a specific team member.
-    const cardMap = await fetchCardsForAccount(apiKey, lsAccount.id);
+    const cardMap = await fetchCardsForAccount(apiKey, accountId);
 
-    // 3. Pull transactions for the configured window.
+    // 2. Pull transactions for the configured window directly from the
+    //    PPS Opex account endpoint — no account discovery / name matching.
     const now = new Date();
     const start =
       startDate ||
       `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     const end = endDate || now.toISOString().slice(0, 10);
 
-    const url = `${BASE_URL}/account/${lsAccount.id}/transactions?start=${start}&end=${end}&limit=500`;
+    const url = `${BASE_URL}/account/${accountId}/transactions?start=${start}&end=${end}&limit=500`;
     const res = await fetch(url, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     });
@@ -172,18 +162,20 @@ export async function fetchMercuryExpenses(
     const data = await res.json();
     const rawTxns: any[] = data.transactions ?? [];
 
-    // 4. Filter + map.
+    // 3. Filter + map.
+    //    Only outgoing (negative-amount) transactions are kept as expenses,
+    //    per spec. Internal transfers + failed transactions are also dropped.
     const allTransactions: MercuryTransaction[] = [];
     for (const t of rawTxns) {
       const amount = Number(t.amount) || 0;
 
-      // Skip income
+      // Skip income — only negative amounts are expenses.
       if (amount >= 0) continue;
 
       // Skip failed transactions — money never moved, so they aren't expenses
       if ((t.status || '').toLowerCase() === 'failed') continue;
 
-      // Skip internal transfers
+      // Skip internal transfers (money moving between own accounts).
       if (isInternalTransfer(t)) continue;
 
       // Look up card attribution if this is a debit-card transaction
@@ -191,12 +183,12 @@ export async function fetchMercuryExpenses(
       const card = cardId ? cardMap.get(cardId) : undefined;
 
       allTransactions.push({
-        id: t.id ?? '',
-        date: (t.postedDate || t.createdAt || '').slice(0, 10),
+        id: t.id ?? '',                                  // transaction id
+        date: (t.createdAt || '').slice(0, 10),          // createdAt per spec
         description: t.note || t.bankDescription || t.counterpartyName || '',
-        amount: Math.abs(amount),
+        amount: Math.abs(amount),                        // absolute value
         category: categorizeExpense(t),
-        counterpartyName: t.counterpartyName ?? '',
+        counterpartyName: t.counterpartyName ?? '',      // vendor
         status: t.status ?? 'completed',
         cardName: card?.nameOnCard ?? null,
         cardLastFour: card?.lastFourDigits ?? null,

@@ -13,6 +13,10 @@ export async function GET(request: NextRequest) {
     if (!apiKey) {
       return NextResponse.json({ error: 'Mercury API key not configured' }, { status: 503 });
     }
+    const ppsAccountId = process.env.MERCURY_PPS_ACCOUNT_ID;
+    if (!ppsAccountId) {
+      return NextResponse.json({ error: 'MERCURY_PPS_ACCOUNT_ID not configured' }, { status: 503 });
+    }
 
     // Check cache
     if (cache && Date.now() - cache.ts < TTL) {
@@ -22,7 +26,7 @@ export async function GET(request: NextRequest) {
     const start = request.nextUrl.searchParams.get('start') || undefined;
     const end = request.nextUrl.searchParams.get('end') || undefined;
 
-    const data = await fetchMercuryExpenses(apiKey, start, end);
+    const data = await fetchMercuryExpenses(apiKey, ppsAccountId, start, end);
     cache = { data, ts: Date.now() };
     return NextResponse.json(data);
   } catch (e) {

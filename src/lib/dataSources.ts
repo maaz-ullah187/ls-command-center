@@ -425,10 +425,11 @@ export async function getExpenses(): Promise<Expense[]> {
   // Pull expenses from Mercury banking ONLY (ProgB checking account).
   // Mercury is the single source of truth for expenses.
   const mercuryKey = process.env.MERCURY_API_KEY;
-  if (mercuryKey) {
+  const ppsAccountId = process.env.MERCURY_PPS_ACCOUNT_ID;
+  if (mercuryKey && ppsAccountId) {
     try {
       const { fetchMercuryExpenses } = await import('./mappers/mercury');
-      const summary = await fetchMercuryExpenses(mercuryKey);
+      const summary = await fetchMercuryExpenses(mercuryKey, ppsAccountId);
       if (summary.transactions.length > 0) {
         // Map MercuryTransaction → Expense type
         return summary.transactions.map(t => ({

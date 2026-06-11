@@ -92,12 +92,13 @@ export async function GET(req: NextRequest) {
     amount: number | string | null;
     status: string | null;
     payment_type: string | null;
+    offer: string | null;
   };
   const all: Row[] = [];
   for (let offset = 0; ; offset += 1000) {
     const { data, error } = await supa
       .from('t07_income_processors')
-      .select('final_amount, amount, status, payment_type')
+      .select('final_amount, amount, status, payment_type, offer')
       .gte('date', from)
       .lte('date', to)
       .range(offset, offset + 999);
@@ -115,6 +116,10 @@ export async function GET(req: NextRequest) {
   let mastermind = 0;
   let uncategorized = 0;
   let refunds = 0;
+  // depositRevenue is a separate slice of newCash — payment_type='new_client'
+  // AND offer ILIKE '%deposit%'. Reported alongside newCash (not subtracted)
+  // so the headline KPIs can surface deposit cash separately.
+  let depositRevenue = 0;
   let excludedCount = 0;
   let pendingSkipped = 0;
 
@@ -145,6 +150,12 @@ export async function GET(req: NextRequest) {
 
     if (ptype === 'new_client' || ptype === 'new') {
       newCash += amt;
+      // Deposit slice — paid new_client rows whose offer mentions "deposit".
+      // Overlaps newCash on purpose; surfaced separately on the headline.
+      const offer = String(r.offer ?? '').toLowerCase();
+      if (offer.includes('deposit')) {
+        depositRevenue += amt;
+      }
     } else if (ptype === 'account_receivable') {
       ar += amt;
     } else if (ptype === 'upsell_renewal' || ptype === 'renewal' || ptype === 'upgrade') {
@@ -170,6 +181,7 @@ export async function GET(req: NextRequest) {
     mastermind,
     uncategorized,
     refunds,
+    depositRevenue,
     grossInflow,
     netRevenue,
     debug: {

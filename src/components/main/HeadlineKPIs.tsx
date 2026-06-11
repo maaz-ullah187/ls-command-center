@@ -71,6 +71,8 @@ interface RevBuckets {
   mastermind: number;
   uncategorized: number;
   refunds: number;
+  /** Slice of newCash where offer ILIKE '%deposit%'. Reported separately. */
+  depositRevenue: number;
   grossInflow: number;
   netRevenue: number;
 }
@@ -273,7 +275,8 @@ export default function HeadlineKPIs() {
     // from the sheet (manually-maintained client status). NOT total client
     // count (which was wrongly showing 380 here previously).
     const activeClients = sheetRevenue.activeClientCount ?? 0;
-    return { newCash, refunds, backend, netRevenue, totalExpenses, netProfit, marginPct, activeClients };
+    const depositRevenue = currentRev?.depositRevenue ?? 0;
+    return { newCash, refunds, backend, netRevenue, totalExpenses, netProfit, marginPct, activeClients, depositRevenue };
   }, [currentRev, currentExpensesTotal, sheetRevenue]);
 
   const priorKpis = useMemo(() => {
@@ -289,6 +292,7 @@ export default function HeadlineKPIs() {
     const expensesTotal = priorExpensesTotal ?? null;
     const netProfit = expensesTotal !== null ? netRevenue - expensesTotal : null;
     const marginPct = netProfit !== null && netRevenue > 0 ? (netProfit / netRevenue) * 100 : null;
+    const depositRevenue = priorRevBuckets?.depositRevenue ?? 0;
     return {
       newCash,
       refunds,
@@ -298,6 +302,7 @@ export default function HeadlineKPIs() {
       netProfit,
       marginPct,
       activeClients: priorRev?.clientCount ?? 0,
+      depositRevenue,
     };
   }, [priorRev, priorRevBuckets, priorExpensesTotal]);
 
@@ -328,6 +333,18 @@ export default function HeadlineKPIs() {
           exact={fmtUSD(kpis.backend)}
           current={kpis.backend}
           prior={priorKpis?.backend ?? null}
+          priorLabel={priorLabel}
+          periodLabel={periodLabel}
+          loading={loading}
+        />
+        <KPICard
+          cardId="main:headline:deposit-revenue"
+          label="Deposit Revenue"
+          Icon={DollarSign}
+          value={fmtUSD(kpis.depositRevenue)}
+          exact={fmtUSD(kpis.depositRevenue)}
+          current={kpis.depositRevenue}
+          prior={priorKpis?.depositRevenue ?? null}
           priorLabel={priorLabel}
           periodLabel={periodLabel}
           loading={loading}

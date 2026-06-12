@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
+import { Pencil, Check, X as XIcon, Loader2 } from 'lucide-react';
 import type { Lead, Ad } from '@/lib/types';
 import type { SheetRevenueSummary } from '@/hooks/useDashboardData';
 import type { DateRange } from '@/components/TimeframeSelector';
@@ -99,16 +100,55 @@ export default function ProjectionsTab({ leads, ads, sheetRevenue, dateRange }: 
     }
   }, [month]);
 
+  // ─── Manual actuals overrides (manual_kpi_overrides table) ──────────────
+  // Operator can correct a computed actual (e.g. Leads) when the upstream
+  // source is wrong. Keyed by metric_key so additional rows can opt in.
+  const [actualOverrides, setActualOverrides] = useState<Record<string, number>>({});
+  const [editingActualKey, setEditingActualKey] = useState<string | null>(null);
+  const [actualSavingKey, setActualSavingKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/overrides/kpi?month=${month}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => setActualOverrides(d?.overrides ?? {}))
+      .catch(() => setActualOverrides({}));
+  }, [month]);
+
+  const saveActualOverride = useCallback(async (metric_key: string, value: number) => {
+    setActualSavingKey(metric_key);
+    setActualOverrides(prev => ({ ...prev, [metric_key]: value }));
+    try {
+      const res = await fetch('/api/overrides/kpi', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ metric_key, month, value }),
+      });
+      if (!res.ok) {
+        // Rollback on failure
+        const fresh = await fetch(`/api/overrides/kpi?month=${month}`, { cache: 'no-store' })
+          .then(r => r.json()).catch(() => null);
+        setActualOverrides(fresh?.overrides ?? {});
+      }
+    } finally {
+      setActualSavingKey(null);
+      setEditingActualKey(null);
+    }
+  }, [month]);
+
   // ─── Compute actuals from existing dashboard data ───────────────────────
   const actuals = useMemo(() => {
     // Ads & Leads
     const adSpend     = ads.reduce((s, a) => s + (a.spend || 0), 0);
     const clicks      = ads.reduce((s, a) => s + (a.clicks || 0), 0);
     // Prefer Meta-reported leads (same logic as aggregateMetrics's ROAS fix).
-    const metaLeads   = ads.reduce((s, a) => s + (a.metaLeads ?? a.leads ?? 0), 0);
-    const crmLeads    = leads.length;
-    const leadsActual = metaLeads > 0 ? metaLeads : crmLeads;
-    const cpl         = leadsActual > 0 ? adSpend / leadsActual : 0;
+    // Operator override (metric_key='projections_leads') wins over both —
+    // CPL is recomputed from the override so the two stay reconciled.
+    const metaLeads      = ads.reduce((s, a) => s + (a.metaLeads ?? a.leads ?? 0), 0);
+    const crmLeads       = leads.length;
+    const computedLeads  = metaLeads > 0 ? metaLeads : crmLeads;
+    const leadsOverride  = actualOverrides['projections_leads'];
+    const leadsActual    = leadsOverride !== undefined ? leadsOverride : computedLeads;
+    const cpl            = leadsActual > 0 ? adSpend / leadsActual : 0;
 
     // Demo Calls (sourced from EOD aggregates — these are the closer's
     // self-reported counts that the team treats as the source of truth)
@@ -132,7 +172,7 @@ export default function ProjectionsTab({ leads, ads, sheetRevenue, dateRange }: 
       callsScheduled, callsTaken, noShows, offersMade, dealsClosed, showRate, closeRate,
       cashCollected, avgDealSize, cashPerCall, roas, marketingMargin,
     };
-  }, [ads, leads.length, eod, sheetRevenue.newCash]);
+  }, [ads, leads.length, eod, sheetRevenue.newCash, actualOverrides]);
 
   const sections: MetricSection[] = useMemo(() => ([
     {
@@ -203,11 +243,57 @@ export default function ProjectionsTab({ leads, ads, sheetRevenue, dateRange }: 
               {section.rows.map(row => {
                 const projected = projections[row.key];
                 const { pct, color } = variance(row.actual, projected, row.higherIsBetter);
+                // Only the Leads row supports manual actuals override today.
+                // Wire other rows in by mapping their `row.key` → metric_key here.
+                const actualOverrideKey = row.key === 'leads' ? 'projections_leads' : null;
+                const isOverridden = actualOverrideKey
+                  ? actualOverrides[actualOverrideKey] !== undefined
+                  : false;
+                const isEditingActual = actualOverrideKey
+                  ? editingActualKey === actualOverrideKey
+                  : false;
+                const isSavingActual = actualOverrideKey
+                  ? actualSavingKey === actualOverrideKey
+                  : false;
                 return (
-                  <tr key={row.key} className="border-t border-gray-800 hover:bg-[#15171c]">
-                    <td className="py-2.5 px-5 text-gray-200">{row.label}</td>
+                  <tr key={row.key} className="group/row border-t border-gray-800 hover:bg-[#15171c]">
+                    <td className="py-2.5 px-5 text-gray-200">
+                      <span className="inline-flex items-center gap-2">
+                        {row.label}
+                        {isOverridden && !isEditingActual && (
+                          <span
+                            title="Operator override active"
+                            className="text-[9px] uppercase tracking-wider text-amber-400 font-semibold border border-amber-500/30 rounded px-1 py-0.5 leading-none"
+                          >
+                            edit
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="py-2.5 px-3 text-right text-white tabular-nums">
-                      {formatValue(row.actual, row.format)}
+                      {isEditingActual && actualOverrideKey ? (
+                        <ActualOverrideInput
+                          value={actualOverrides[actualOverrideKey] ?? row.actual}
+                          disabled={isSavingActual}
+                          saving={isSavingActual}
+                          onSave={(v) => saveActualOverride(actualOverrideKey, v)}
+                          onCancel={() => setEditingActualKey(null)}
+                        />
+                      ) : (
+                        <span className="inline-flex items-center gap-1.5">
+                          <span>{formatValue(row.actual, row.format)}</span>
+                          {actualOverrideKey && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingActualKey(actualOverrideKey)}
+                              className="opacity-0 group-hover/row:opacity-100 transition-opacity text-gray-500 hover:text-white"
+                              title="Override actual value"
+                            >
+                              <Pencil size={11} />
+                            </button>
+                          )}
+                        </span>
+                      )}
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       <ProjectionInput
@@ -291,6 +377,71 @@ function ProjectionInput({ value, format, disabled, onSave }: ProjectionInputPro
         }}
       />
       {suffix && <span className="text-gray-500 text-xs">{suffix}</span>}
+    </div>
+  );
+}
+
+// ─── Inline editor for the Actual cell (manual override).
+// Separate from ProjectionInput so it gets its own keyboard handlers
+// (Enter to save, Esc to cancel) and explicit Save/Cancel buttons —
+// blur-to-save would be too easy to trip accidentally on the dense table.
+interface ActualOverrideInputProps {
+  value: number;
+  disabled: boolean;
+  saving: boolean;
+  onSave: (v: number) => void;
+  onCancel: () => void;
+}
+
+function ActualOverrideInput({ value, disabled, saving, onSave, onCancel }: ActualOverrideInputProps) {
+  const [draft, setDraft] = useState<string>(String(Math.round(value)));
+
+  function commit() {
+    const parsed = parseFloat(draft.replace(/[^0-9.\-]/g, ''));
+    if (!Number.isFinite(parsed)) {
+      onCancel();
+      return;
+    }
+    onSave(parsed);
+  }
+
+  return (
+    <div className="inline-flex items-center gap-1">
+      <div className="inline-flex items-center gap-1 bg-[#0f1115] border border-blue-600 rounded px-2 py-1">
+        <input
+          autoFocus
+          type="text"
+          inputMode="decimal"
+          className="w-20 bg-transparent text-right text-white text-sm outline-none tabular-nums disabled:opacity-50"
+          value={draft}
+          disabled={disabled}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === '' || /^-?\d*\.?\d*$/.test(v)) setDraft(v);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') onCancel();
+          }}
+        />
+      </div>
+      <button
+        type="button"
+        onClick={commit}
+        disabled={disabled}
+        className="p-1 rounded bg-emerald-900/40 hover:bg-emerald-900/60 text-emerald-300"
+        title="Save"
+      >
+        {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="p-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-400"
+        title="Cancel"
+      >
+        <XIcon size={11} />
+      </button>
     </div>
   );
 }

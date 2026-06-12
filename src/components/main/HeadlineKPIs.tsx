@@ -13,6 +13,9 @@ import {
   Wallet,
   Percent,
   Users,
+  Pencil,
+  Check,
+  X as XIcon,
   type LucideIcon,
 } from 'lucide-react';
 import { useTimeframe } from '@/lib/useTimeframe';
@@ -82,6 +85,20 @@ function formatLongDate(iso: string): string {
   return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
 }
 
+interface KPICardEdit {
+  /** Whether the inline editor is open. */
+  editing: boolean;
+  /** Current draft value (string so the input can hold partials). */
+  draft: string;
+  setDraft: (v: string) => void;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: () => void;
+  saving: boolean;
+  /** True when the displayed value is the operator override (changes affordance copy). */
+  isOverridden: boolean;
+}
+
 interface KPICardProps {
   label: string;
   Icon: LucideIcon;
@@ -97,6 +114,8 @@ interface KPICardProps {
   loading: boolean;
   /** Stable id for the per-card "Send to Claude" feedback popover. */
   cardId: string;
+  /** Optional inline-edit affordance. When present, the value can be overridden. */
+  edit?: KPICardEdit;
 }
 
 function KPICard({
@@ -112,6 +131,7 @@ function KPICard({
   priorLabel,
   loading,
   cardId,
+  edit,
 }: KPICardProps) {
   let trend: 'up' | 'down' | 'flat' = 'flat';
   let pctDelta = 0;
@@ -133,17 +153,77 @@ function KPICard({
         <div className="flex items-center gap-1.5 min-w-0">
           <Icon size={14} className="text-blue-400 shrink-0" />
           <div className="text-[11px] uppercase tracking-wider text-gray-300 font-semibold truncate">{label}</div>
+          {edit?.isOverridden && !edit.editing && (
+            <span
+              title="Operator override active"
+              className="text-[9px] uppercase tracking-wider text-amber-400 font-semibold border border-amber-500/30 rounded px-1 py-0.5 leading-none"
+            >
+              edit
+            </span>
+          )}
         </div>
-        <CardFeedbackMenu cardId={cardId} />
+        <div className="flex items-center gap-1">
+          {edit && !edit.editing && !loading && (
+            <button
+              type="button"
+              onClick={edit.onStartEdit}
+              className="p-0.5 rounded text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Edit value"
+            >
+              <Pencil size={12} />
+            </button>
+          )}
+          <CardFeedbackMenu cardId={cardId} />
+        </div>
       </div>
 
       {/* Value */}
       <div className="relative">
-        <div className="text-3xl md:text-[34px] font-bold text-white tracking-tight leading-none">
-          {loading ? <Loader2 size={22} className="animate-spin text-gray-600" /> : value}
-        </div>
+        {edit?.editing ? (
+          <div className="flex items-center gap-1.5">
+            <div className="inline-flex items-center gap-1 bg-black/40 border border-blue-600 rounded px-2 py-1 w-36">
+              <span className="text-xs text-gray-500">$</span>
+              <input
+                autoFocus
+                inputMode="decimal"
+                value={edit.draft}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === '' || /^-?\d*\.?\d*$/.test(v)) edit.setDraft(v);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') edit.onSaveEdit();
+                  if (e.key === 'Escape') edit.onCancelEdit();
+                }}
+                disabled={edit.saving}
+                className="w-full bg-transparent outline-none text-right text-white text-xl tabular-nums [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none disabled:opacity-50"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={edit.onSaveEdit}
+              disabled={edit.saving}
+              className="p-1 rounded bg-emerald-900/40 hover:bg-emerald-900/60 text-emerald-300"
+              title="Save"
+            >
+              {edit.saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+            </button>
+            <button
+              type="button"
+              onClick={edit.onCancelEdit}
+              className="p-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-400"
+              title="Cancel"
+            >
+              <XIcon size={12} />
+            </button>
+          </div>
+        ) : (
+          <div className="text-3xl md:text-[34px] font-bold text-white tracking-tight leading-none">
+            {loading ? <Loader2 size={22} className="animate-spin text-gray-600" /> : value}
+          </div>
+        )}
         {/* Hover tooltip: exact value pill */}
-        {!loading && (
+        {!loading && !edit?.editing && (
           <div className="pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 opacity-0 group-hover:opacity-100 transition-opacity bg-[#0a0c0f] border border-gray-700 text-blue-300 text-xs font-semibold px-2.5 py-1 rounded shadow-lg whitespace-nowrap">
             {exact}
             <span className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-[#0a0c0f] border-r border-b border-gray-700 rotate-45" />
@@ -182,6 +262,48 @@ export default function HeadlineKPIs() {
   // the donut because Mercury direct ≠ t08_expenses. Single source of truth.
   const [currentExpensesTotal, setCurrentExpensesTotal] = useState<number | null>(null);
   const [priorLoading, setPriorLoading] = useState(true);
+
+  // ── Manual KPI overrides ──────────────────────────────────────────────
+  // The operator can correct any KPI value inline; saved per-(metric, month)
+  // to manual_kpi_overrides. Currently only the Deposit Revenue card
+  // exposes the affordance, but the wiring is generic so other cards can
+  // opt in by passing `edit={...}` to KPICard.
+  const month = (tf.from && /^\d{4}-\d{2}/.test(tf.from)) ? tf.from.slice(0, 7) : '';
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
+  const [editingMetric, setEditingMetric] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
+  useEffect(() => {
+    if (!month) return;
+    let cancelled = false;
+    fetch(`/api/overrides/kpi?month=${month}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setOverrides(d?.overrides ?? {}); })
+      .catch(() => { if (!cancelled) setOverrides({}); });
+    return () => { cancelled = true; };
+  }, [month]);
+
+  const saveOverride = async (metric_key: string, value: number) => {
+    setEditSaving(true);
+    // Optimistic update so the card snaps to the new value immediately.
+    setOverrides((prev) => ({ ...prev, [metric_key]: value }));
+    try {
+      const res = await fetch('/api/overrides/kpi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ metric_key, month, value }),
+      });
+      if (!res.ok) {
+        // Rollback on failure
+        const fresh = await fetch(`/api/overrides/kpi?month=${month}`, { cache: 'no-store' }).then(r => r.json()).catch(() => null);
+        setOverrides(fresh?.overrides ?? {});
+      }
+    } finally {
+      setEditSaving(false);
+      setEditingMetric(null);
+    }
+  };
   // Architecture B: revenue-buckets (t07) for current + prior month. Same
   // endpoint Revenue Composition reads, so the donut total and Net Revenue
   // KPI are guaranteed to match.
@@ -337,18 +459,45 @@ export default function HeadlineKPIs() {
           periodLabel={periodLabel}
           loading={loading}
         />
-        <KPICard
-          cardId="main:headline:deposit-revenue"
-          label="Deposit Revenue"
-          Icon={DollarSign}
-          value={fmtUSD(kpis.depositRevenue)}
-          exact={fmtUSD(kpis.depositRevenue)}
-          current={kpis.depositRevenue}
-          prior={priorKpis?.depositRevenue ?? null}
-          priorLabel={priorLabel}
-          periodLabel={periodLabel}
-          loading={loading}
-        />
+        {(() => {
+          const override = overrides['deposit_revenue'];
+          const isOverridden = override !== undefined;
+          const display = isOverridden ? override : kpis.depositRevenue;
+          return (
+            <KPICard
+              cardId="main:headline:deposit-revenue"
+              label="Deposit Revenue"
+              Icon={DollarSign}
+              value={fmtUSD(display)}
+              exact={fmtUSD(display)}
+              current={display}
+              prior={priorKpis?.depositRevenue ?? null}
+              priorLabel={priorLabel}
+              periodLabel={periodLabel}
+              loading={loading}
+              edit={month ? {
+                editing: editingMetric === 'deposit_revenue',
+                draft: editDraft,
+                setDraft: setEditDraft,
+                onStartEdit: () => {
+                  setEditDraft(String(isOverridden ? override : Math.round(kpis.depositRevenue)));
+                  setEditingMetric('deposit_revenue');
+                },
+                onCancelEdit: () => setEditingMetric(null),
+                onSaveEdit: () => {
+                  const parsed = parseFloat(editDraft);
+                  if (!Number.isFinite(parsed)) {
+                    setEditingMetric(null);
+                    return;
+                  }
+                  saveOverride('deposit_revenue', parsed);
+                },
+                saving: editSaving,
+                isOverridden,
+              } : undefined}
+            />
+          );
+        })()}
         <KPICard
           cardId="main:headline:refunds"
           label="Refunds"

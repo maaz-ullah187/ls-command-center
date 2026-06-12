@@ -97,6 +97,8 @@ interface KPICardEdit {
   saving: boolean;
   /** True when the displayed value is the operator override (changes affordance copy). */
   isOverridden: boolean;
+  /** Optional prefix shown inside the input (e.g. '$' for currency). Defaults to '$'. */
+  inputPrefix?: string;
 }
 
 interface KPICardProps {
@@ -182,7 +184,9 @@ function KPICard({
         {edit?.editing ? (
           <div className="flex items-center gap-1.5">
             <div className="inline-flex items-center gap-1 bg-black/40 border border-blue-600 rounded px-2 py-1 w-36">
-              <span className="text-xs text-gray-500">$</span>
+              {(edit.inputPrefix ?? '$') && (
+                <span className="text-xs text-gray-500">{edit.inputPrefix ?? '$'}</span>
+              )}
               <input
                 autoFocus
                 inputMode="decimal"
@@ -561,19 +565,47 @@ export default function HeadlineKPIs() {
           periodLabel={periodLabel}
           loading={loading}
         />
-        <KPICard
-          cardId="main:headline:active-clients"
-          label="Active Clients"
-          Icon={Users}
-          value={fmtCount(kpis.activeClients)}
-          exact={fmtCount(kpis.activeClients)}
-          current={kpis.activeClients}
-          prior={priorKpis?.activeClients ?? null}
-          priorValueFmt={fmtCount}
-          priorLabel={priorLabel}
-          periodLabel={periodLabel}
-          loading={loading}
-        />
+        {(() => {
+          const override = overrides['active_clients'];
+          const isOverridden = override !== undefined;
+          const display = isOverridden ? override : kpis.activeClients;
+          return (
+            <KPICard
+              cardId="main:headline:active-clients"
+              label="Active Clients"
+              Icon={Users}
+              value={fmtCount(display)}
+              exact={fmtCount(display)}
+              current={display}
+              prior={priorKpis?.activeClients ?? null}
+              priorValueFmt={fmtCount}
+              priorLabel={priorLabel}
+              periodLabel={periodLabel}
+              loading={loading}
+              edit={month ? {
+                editing: editingMetric === 'active_clients',
+                draft: editDraft,
+                setDraft: setEditDraft,
+                onStartEdit: () => {
+                  setEditDraft(String(isOverridden ? override : Math.round(kpis.activeClients)));
+                  setEditingMetric('active_clients');
+                },
+                onCancelEdit: () => setEditingMetric(null),
+                onSaveEdit: () => {
+                  const parsed = parseFloat(editDraft);
+                  if (!Number.isFinite(parsed)) {
+                    setEditingMetric(null);
+                    return;
+                  }
+                  saveOverride('active_clients', parsed);
+                },
+                saving: editSaving,
+                isOverridden,
+                inputPrefix: '',
+              } : undefined}
+            />
+          );
+        })()}
       </div>
 
       {/* Pace legend (matches Metabase footer) */}

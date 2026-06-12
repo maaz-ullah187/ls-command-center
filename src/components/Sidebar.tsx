@@ -18,6 +18,7 @@ import {
   Database,
   ChevronRight,
   Target,
+  ShieldAlert,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -39,6 +40,8 @@ interface NavItem {
   /** Tailwind text-color class applied when this item is active (and on hover) */
   accent: string;
   exact?: boolean;
+  /** Optional dynamic-count key. When set, the sidebar fetches and renders a badge. */
+  badge?: 'review-queue';
 }
 
 interface NavGroup {
@@ -63,6 +66,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Leads & CRM',         href: '/crm',         Icon: UsersRound,    accent: 'text-violet-400' },
       { label: 'Sales Calls',         href: '/sales-calls', Icon: PhoneIncoming, accent: 'text-cyan-400' },
       { label: 'Billing & Payments',  href: '/billing',     Icon: CreditCard,    accent: 'text-emerald-400' },
+      { label: 'Payment Review',      href: '/billing/review', Icon: ShieldAlert, accent: 'text-amber-400', badge: 'review-queue' },
       { label: 'Expenses',            href: '/expenses',    Icon: Receipt,       accent: 'text-rose-400' },
     ],
   },
@@ -94,6 +98,26 @@ export default function Sidebar() {
       if (raw) setCollapsed(new Set(JSON.parse(raw)));
     } catch { /* ignore — defaults to empty (all expanded) */ }
   }, []);
+
+  // Sidebar badges — Payment Review queue count. Polled every 60s so the
+  // operator sees newly-pending payments without a hard refresh.
+  const [reviewQueueCount, setReviewQueueCount] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetch('/api/billing/review-queue', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((d) => { if (!cancelled) setReviewQueueCount(typeof d?.count === 'number' ? d.count : 0); })
+        .catch(() => { if (!cancelled) setReviewQueueCount(null); });
+    };
+    load();
+    const id = window.setInterval(load, 60_000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, []);
+  const badgeCountFor = (badge: NavItem['badge']): number | null => {
+    if (badge === 'review-queue') return reviewQueueCount;
+    return null;
+  };
   const toggleGroup = (label: string) => {
     setCollapsed((prev) => {
       const next = new Set(prev);
@@ -144,6 +168,7 @@ export default function Sidebar() {
                 {group.items.map((item) => {
                   const active = isActive(item);
                   const Icon = item.Icon;
+                  const badgeCount = badgeCountFor(item.badge);
                   return (
                     <Link
                       key={item.href}
@@ -162,7 +187,15 @@ export default function Sidebar() {
                             : `text-gray-500 group-hover:${item.accent.replace('text-', 'text-')} group-hover:scale-110`
                         }`}
                       />
-                      <span className="tracking-tight">{item.label}</span>
+                      <span className="tracking-tight flex-1">{item.label}</span>
+                      {badgeCount !== null && badgeCount > 0 && (
+                        <span
+                          title={`${badgeCount} pending`}
+                          className="text-[10px] font-bold leading-none px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 tabular-nums"
+                        >
+                          {badgeCount > 99 ? '99+' : badgeCount}
+                        </span>
+                      )}
                     </Link>
                   );
                 })}

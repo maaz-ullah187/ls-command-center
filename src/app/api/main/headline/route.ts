@@ -32,6 +32,7 @@ export async function GET(req: NextRequest) {
   const { data, error } = await supa
     .from('t07_income_processors')
     .select('amount, final_amount, status, payment_type, date')
+    .eq('review_status', 'approved')  // ← Payment Review Queue gate
     .gte('date', window.from)
     .lte('date', window.to)
     .order('date', { ascending: false })

@@ -100,6 +100,7 @@ export async function GET(req: NextRequest) {
     const { data, error } = await supa
       .from('t07_income_processors')
       .select('date, final_amount, amount, status, payment_type')
+      .eq('review_status', 'approved')  // ← Payment Review Queue gate
       .gte('date', from)
       .lte('date', to)
       .range(offset, offset + 999);
@@ -302,6 +303,7 @@ export async function GET(req: NextRequest) {
       const { data } = await supa
         .from('t07_income_processors')
         .select('date, final_amount, amount, status, payment_type')
+        .eq('review_status', 'approved')  // ← Payment Review Queue gate
         .gte('date', priorFrom)
         .lte('date', priorTo)
         .range(off, off + 999);

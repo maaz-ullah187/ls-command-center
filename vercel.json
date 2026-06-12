@@ -42,7 +42,7 @@
       "schedule": "30 10 * * *"
     },
     {
-      "path": "/api/sync/stripe?days=90",
+      "path": "/api/sync/stripe?days=30",
       "schedule": "0 12 * * *"
     }
   ]

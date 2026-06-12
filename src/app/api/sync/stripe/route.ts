@@ -1,73 +1,89 @@
 // Sync worker: t07_income_processors (Stripe source)
-// Source: Stripe Charges API → t07_income_processors
+// Source: Stripe /v1/balance_transactions?type=charge → t07_income_processors
 // Schedule: daily via Vercel Cron
 //
-// Pulls every charge with status = 'succeeded' from Stripe (default: last
-// 90 days, paginates via `starting_after`) and upserts them into t07
-// keyed on `stripe-<charge_id>` so re-syncs are idempotent.
+// Why balance_transactions instead of /v1/charges:
+//   • `net` field gives us the post-fee amount directly (no second call needed)
+//   • `fee` field surfaces the Stripe processing fee per row
+//   • One canonical record per money movement, including refunds (type='refund')
+//
+// We expand `source` so each row carries the full underlying Charge object —
+// that's where billing_details (name / email) and description live.
 //
 // All Stripe charges are categorized as `new_client` with offer
 // 'Deposit Revenue' per the operator's spec — Stripe is currently only used
-// for deposit collection. Amounts come from `amount_captured` (cents → USD).
+// for deposit collection.
 //
 // NOTE: the t07 `processor` column has a CHECK constraint that historically
 // allowed only ('whop', 'fanbasis'). Adding 'stripe' requires a follow-up
 // migration to extend that constraint, otherwise upserts will fail with
-// `payment_processors_processor_check`. Flagged in the summary.
+// `payment_processors_processor_check`.
 
 import { NextResponse } from 'next/server';
 import { runSync } from '@/lib/sync/runner';
 
 export const maxDuration = 120;
 
-interface StripeCharge {
-  id: string;
-  amount_captured: number;
-  status: string;
-  created: number;
-  description: string | null;
-  receipt_email: string | null;
-  billing_details: {
-    name: string | null;
-    email: string | null;
-  } | null;
+interface StripeBillingDetails {
+  name: string | null;
+  email: string | null;
 }
 
-interface StripeChargeListResponse {
+interface StripeChargeExpanded {
+  id: string;
+  description: string | null;
+  receipt_email: string | null;
+  billing_details: StripeBillingDetails | null;
+}
+
+interface StripeBalanceTransaction {
+  id: string;
+  amount: number;          // gross, in cents
+  net: number;             // post-fee, in cents
+  fee: number;             // Stripe fee, in cents
+  created: number;         // epoch seconds
+  type: string;            // 'charge' (filtered server-side) | 'refund' | …
+  // `source` is the related object id (string) by default. We request
+  // expand[]=data.source so Stripe returns the full Charge object inline.
+  source: string | StripeChargeExpanded | null;
+}
+
+interface StripeBalanceTransactionListResponse {
   object: 'list';
-  data: StripeCharge[];
+  data: StripeBalanceTransaction[];
   has_more: boolean;
 }
 
 const STRIPE_API = 'https://api.stripe.com/v1';
 
-/** Paginate /v1/charges, filtered to succeeded only. */
-async function fetchAllSucceededCharges(
+/** Paginate /v1/balance_transactions?type=charge with the underlying charge expanded. */
+async function fetchAllChargeBalanceTransactions(
   apiKey: string,
   createdGte?: number,
-): Promise<StripeCharge[]> {
-  const all: StripeCharge[] = [];
+): Promise<StripeBalanceTransaction[]> {
+  const all: StripeBalanceTransaction[] = [];
   let startingAfter: string | undefined;
   // Hard cap so a runaway loop can't blow past Vercel's 120s budget.
   for (let page = 0; page < 200; page++) {
     const params = new URLSearchParams();
     params.set('limit', '100');
+    params.set('type', 'charge');
+    // Inline the source Charge so billing_details / description come back
+    // without a second request per row.
+    params.append('expand[]', 'data.source');
     if (startingAfter) params.set('starting_after', startingAfter);
     if (createdGte !== undefined) params.set('created[gte]', String(createdGte));
 
-    const res = await fetch(`${STRIPE_API}/charges?${params.toString()}`, {
+    const res = await fetch(`${STRIPE_API}/balance_transactions?${params.toString()}`, {
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`Stripe /charges HTTP ${res.status}: ${text.slice(0, 300)}`);
+      throw new Error(`Stripe /balance_transactions HTTP ${res.status}: ${text.slice(0, 300)}`);
     }
-    const body = (await res.json()) as StripeChargeListResponse;
+    const body = (await res.json()) as StripeBalanceTransactionListResponse;
     const items = body.data ?? [];
-
-    for (const c of items) {
-      if (c.status === 'succeeded') all.push(c);
-    }
+    all.push(...items);
 
     if (!body.has_more || items.length === 0) break;
     startingAfter = items[items.length - 1].id;
@@ -78,6 +94,19 @@ async function fetchAllSucceededCharges(
 /** Convert a Stripe epoch-seconds timestamp to YYYY-MM-DD (UTC). */
 function epochToISODate(epochSec: number): string {
   return new Date(epochSec * 1000).toISOString().slice(0, 10);
+}
+
+/** Pull the charge id out of either an expanded source object or a string source. */
+function chargeIdFromSource(source: StripeBalanceTransaction['source']): string | null {
+  if (!source) return null;
+  if (typeof source === 'string') return source;
+  return source.id ?? null;
+}
+
+/** Pull the expanded Charge (or null if Stripe returned just the id string). */
+function expandedCharge(source: StripeBalanceTransaction['source']): StripeChargeExpanded | null {
+  if (!source || typeof source === 'string') return null;
+  return source;
 }
 
 export async function POST(request: Request) {
@@ -95,21 +124,33 @@ export async function POST(request: Request) {
       ? Math.floor(new Date(`${sinceDate}T00:00:00Z`).getTime() / 1000)
       : Math.floor(Date.now() / 1000) - days * 86400;
 
-    const charges = await fetchAllSucceededCharges(stripeKey, createdGte);
-    console.log(`[sync/stripe] Fetched ${charges.length} succeeded charges`);
+    const txns = await fetchAllChargeBalanceTransactions(stripeKey, createdGte);
+    console.log(`[sync/stripe] Fetched ${txns.length} balance transactions (type=charge)`);
 
-    if (charges.length === 0) {
+    if (txns.length === 0) {
       return { rowsUpserted: 0, rowsSkipped: 0 };
     }
 
-    const rows = charges.map((c) => {
-      const usd = (c.amount_captured ?? 0) / 100;
-      const billingName = c.billing_details?.name ?? null;
-      const name = billingName || c.description || null;
-      const email = c.billing_details?.email ?? c.receipt_email ?? '';
+    const rows = txns.map((t) => {
+      const grossUsd = (t.amount ?? 0) / 100;
+      const netUsd = (t.net ?? 0) / 100;
+      const feeUsd = (t.fee ?? 0) / 100;
+      // Fee as a % of gross — useful for reporting alongside the Whop rows
+      // which carry processing_pct from `(amount - finalAmount) / amount`.
+      const processingPct = grossUsd > 0
+        ? Math.round((feeUsd / grossUsd) * 100 * 100) / 100
+        : 0;
+
+      const charge = expandedCharge(t.source);
+      const chargeId = chargeIdFromSource(t.source);
+
+      const billingName = charge?.billing_details?.name ?? null;
+      const name = billingName || charge?.description || null;
+      const email = charge?.billing_details?.email ?? charge?.receipt_email ?? '';
+
       return {
-        id: `stripe-${c.id}`,
-        date: epochToISODate(c.created),
+        id: `stripe-bt-${t.id}`,
+        date: epochToISODate(t.created),
         name,
         email,
         status: 'paid',
@@ -118,12 +159,14 @@ export async function POST(request: Request) {
         closer: null,
         offer: 'Deposit Revenue',
         financing_used: false,
-        amount: usd,
-        processing_pct: 0,
-        final_amount: usd,
+        amount: grossUsd,
+        processing_pct: processingPct,
+        final_amount: netUsd,
         processor: 'stripe',
+        // Stripe receipt URL needs a separate API call; leave null and let the
+        // dashboard's link column hold the charge id for cross-reference.
         payment_link: null,
-        notes: c.description ?? null,
+        notes: charge?.description ?? (chargeId ? `charge ${chargeId}` : null),
         deal_id: null,
         updated_at: new Date().toISOString(),
       };
@@ -140,7 +183,7 @@ export async function POST(request: Request) {
       upserted += batch.length;
     }
 
-    console.log(`[sync/stripe] Upserted ${upserted} Stripe charges to t07_income_processors`);
+    console.log(`[sync/stripe] Upserted ${upserted} Stripe balance transactions to t07_income_processors`);
     return { rowsUpserted: upserted, rowsSkipped: 0 };
   });
 

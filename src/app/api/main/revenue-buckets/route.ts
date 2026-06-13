@@ -93,12 +93,13 @@ export async function GET(req: NextRequest) {
     status: string | null;
     payment_type: string | null;
     offer: string | null;
+    processor: string | null;
   };
   const all: Row[] = [];
   for (let offset = 0; ; offset += 1000) {
     const { data, error } = await supa
       .from('t07_income_processors')
-      .select('final_amount, amount, status, payment_type, offer')
+      .select('final_amount, amount, status, payment_type, offer, processor')
       .eq('review_status', 'approved')  // ← Payment Review Queue gate
       .gte('date', from)
       .lte('date', to)
@@ -146,6 +147,15 @@ export async function GET(req: NextRequest) {
     // Skip non-paid rows (pending, failed) — they're not revenue yet.
     if (status !== 'paid') {
       pendingSkipped += 1;
+      continue;
+    }
+
+    // Stripe is currently used only for deposit collection. Route every
+    // Stripe row to depositRevenue and skip the other buckets so it isn't
+    // double-counted in newCash / AR / etc.
+    const processor = String(r.processor ?? '').toLowerCase();
+    if (processor === 'stripe') {
+      depositRevenue += amt;
       continue;
     }
 

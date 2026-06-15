@@ -14,8 +14,8 @@ import CashByOffer from '@/components/main/CashByOffer';
 import ExpenseBreakdown from '@/components/main/ExpenseBreakdown';
 import LTVByProgram from '@/components/main/LTVByProgram';
 import ReviewQueueBanner from '@/components/ReviewQueueBanner';
-import { useDashboardData } from '@/hooks/useDashboardData';
 import { useTimeframe } from '@/lib/useTimeframe';
+import type { Lead } from '@/lib/types';
 
 // Aggregated dashboard payload shape — keys match RESPONSE_KEY in
 // /api/main/dashboard-data/route.ts.
@@ -49,8 +49,24 @@ interface AggregatedDashboardData {
  *  12. Mirrors (Recent Leads / Calls / Sales) — collapsed by default
  */
 function MainDashboardInner() {
-  const { leads, refresh } = useDashboardData();
   const tf = useTimeframe();
+
+  // ── Lightweight leads fetch (replaces useDashboardData) ────────────
+  // ReviewQueueBanner is the only consumer of `leads` on this page.
+  // The previous useDashboardData() call fired 10 sibling fetches we
+  // don't need here — main-dashboard data comes from the aggregated
+  // endpoint below.
+  const [leads, setLeads] = useState<Lead[]>([]);
+  const [leadsTick, setLeadsTick] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/data/leads', { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setLeads(Array.isArray(d) ? d : []); })
+      .catch(() => { if (!cancelled) setLeads([]); });
+    return () => { cancelled = true; };
+  }, [leadsTick]);
+  const refresh = () => setLeadsTick((t) => t + 1);
 
   // ── Single aggregated dashboard fetch ──────────────────────────────
   // Hits /api/main/dashboard-data which fans out to all 8 sub-routes in

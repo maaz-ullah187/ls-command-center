@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import CardShell from './CardShell';
 import Donut, { type DonutSlice } from './Donut';
 import { useTimeframe } from '@/lib/useTimeframe';
@@ -34,14 +34,24 @@ interface RevenueBuckets {
 const fmtUSD = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 
-export default function RevenueComposition() {
-  const [data, setData] = useState<RevenueBuckets | null>(null);
-  const [loading, setLoading] = useState(true);
+interface RevenueCompositionProps {
+  /** Pre-fetched data from /api/main/dashboard-data — skips initial fetch when provided. */
+  initialData?: RevenueBuckets;
+}
+
+export default function RevenueComposition({ initialData }: RevenueCompositionProps = {}) {
+  const [data, setData] = useState<RevenueBuckets | null>(initialData ?? null);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
+  const seeded = initialData !== undefined;
   // the operator 2026-05-01: respect the global timeframe filter so picking
   // "Last Month (April 2026)" updates the donut to April's composition.
   const tf = useTimeframe();
 
+  // Track whether we've already consumed the parent-provided seed. The
+  // very first effect run skips its load() when seeded; later timeframe
+  // changes re-fetch as normal.
+  const seedConsumedRef = useRef(false);
   useEffect(() => {
     let alive = true;
     const monthYM = (tf.from && /^\d{4}-\d{2}/.test(tf.from)) ? tf.from.slice(0, 7) : monthYM_ET();
@@ -60,14 +70,18 @@ export default function RevenueComposition() {
         .catch((e) => { if (alive) setError(e?.message ?? 'fetch_failed'); })
         .finally(() => { if (alive) setLoading(false); });
     };
-    load();
+    if (seeded && !seedConsumedRef.current) {
+      seedConsumedRef.current = true;
+    } else {
+      load();
+    }
     const onCategorized = () => load();
     window.addEventListener('billing:categorized', onCategorized);
     return () => {
       alive = false;
       window.removeEventListener('billing:categorized', onCategorized);
     };
-  }, [tf.from, tf.to, tf.preset]);
+  }, [tf.from, tf.to, tf.preset, seeded]);
 
   const slices: DonutSlice[] = data
     ? [

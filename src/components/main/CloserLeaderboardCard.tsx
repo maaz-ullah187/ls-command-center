@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, ChevronsUpDown, ArrowUp, ArrowDown, Minus } from 'lucide-react';
 import { useTimeframe, PRESET_DEFS } from '@/lib/useTimeframe';
 import { priorPeriodFor } from '@/lib/timeframe';
@@ -182,7 +182,12 @@ function MetricCell({
  *   - Cash Per Call as the headline closer metric
  *   - DM setters surface in their own setter section
  */
-export default function CloserLeaderboardCard() {
+interface CloserLeaderboardCardProps {
+  /** Pre-fetched payload from /api/main/dashboard-data → closerLeaderboard. */
+  initialData?: { rows?: CloserLeaderboardRow[] };
+}
+
+export default function CloserLeaderboardCard({ initialData }: CloserLeaderboardCardProps = {}) {
   // the operator 2026-05-01: this card now SYNCS with the global timeframe by
   // default — picking "Last Month" updates everything in lockstep. The
   // user can still click the card-level picker to deviate; once they do,
@@ -216,14 +221,24 @@ export default function CloserLeaderboardCard() {
   const from = localRange.start;
   const to = localRange.end;
 
-  const [rows, setRows] = useState<CloserLeaderboardRow[]>([]);
+  const [rows, setRows] = useState<CloserLeaderboardRow[]>(
+    Array.isArray(initialData?.rows) ? initialData.rows : [],
+  );
   const [priorRows, setPriorRows] = useState<CloserLeaderboardRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialData);
   const [closerSort, setCloserSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'cashPerCall', dir: 'desc' });
   const [setterSort, setSetterSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'booked', dir: 'desc' });
   const [csmSort, setCsmSort] = useState<{ key: SortKey; dir: SortDir }>({ key: 'cash', dir: 'desc' });
+  // Skip the very first dual-fetch when parent provided seed rows. We still
+  // need the prior-period fetch on subsequent renders for trend arrows, so
+  // we'll let the effect fire on the next timeframe change.
+  const seedConsumedRef = useRef(!initialData);
 
   useEffect(() => {
+    if (!seedConsumedRef.current) {
+      seedConsumedRef.current = true;
+      return;
+    }
     setLoading(true);
     const prior = priorPeriodFor({ from, to, preset: localPreset, label: localRange.label });
     Promise.all([

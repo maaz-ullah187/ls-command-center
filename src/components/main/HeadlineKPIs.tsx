@@ -254,7 +254,14 @@ function KPICard({
   );
 }
 
-export default function HeadlineKPIs() {
+interface HeadlineKPIsProps {
+  /** Pre-fetched current-period revenue buckets from /api/main/dashboard-data.
+   *  Seeds `currentRev` so the first paint shows real numbers instead of "—".
+   *  All other fetches (prior period, expenses, sheet) still run normally. */
+  initialRevBuckets?: RevBuckets;
+}
+
+export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = {}) {
   const tf = useTimeframe();
   const { sheetRevenue, loading: dashLoading } = useDashboardData();
 
@@ -311,7 +318,7 @@ export default function HeadlineKPIs() {
   // Architecture B: revenue-buckets (t07) for current + prior month. Same
   // endpoint Revenue Composition reads, so the donut total and Net Revenue
   // KPI are guaranteed to match.
-  const [currentRev, setCurrentRev] = useState<RevBuckets | null>(null);
+  const [currentRev, setCurrentRev] = useState<RevBuckets | null>(initialRevBuckets ?? null);
   const [priorRevBuckets, setPriorRevBuckets] = useState<RevBuckets | null>(null);
 
   // Fetch current + prior-period revenue (t07) + expenses (t08) + sheet

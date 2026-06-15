@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTimeframe } from '@/lib/useTimeframe';
 import CardShell from './CardShell';
 import SourceBadge from './SourceBadge';
@@ -10,12 +10,24 @@ const fmtUSD = (n: number) =>
   n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
 const fmtPct = (n: number) => `${n.toFixed(0)}%`;
 
-export default function SalesFunnelBySource() {
+interface SalesFunnelBySourceProps {
+  /** Pre-fetched funnel-by-source payload from /api/main/dashboard-data. */
+  initialData?: { rows?: FunnelBySourceRow[] };
+}
+
+export default function SalesFunnelBySource({ initialData }: SalesFunnelBySourceProps = {}) {
   const { from, to } = useTimeframe();
-  const [rows, setRows] = useState<FunnelBySourceRow[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rows, setRows] = useState<FunnelBySourceRow[]>(
+    Array.isArray(initialData?.rows) ? initialData.rows : [],
+  );
+  const [loading, setLoading] = useState(!initialData);
+  const seedConsumedRef = useRef(!initialData);
 
   useEffect(() => {
+    if (!seedConsumedRef.current) {
+      seedConsumedRef.current = true;
+      return;
+    }
     setLoading(true);
     fetch(`/api/main/funnel-by-source?from=${from}&to=${to}`)
       .then((r) => r.json())

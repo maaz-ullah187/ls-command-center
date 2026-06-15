@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTimeframe } from '@/lib/useTimeframe';
 import CardShell from './CardShell';
 import Donut, { type DonutSlice } from './Donut';
@@ -10,12 +10,23 @@ interface CashBreakdownResp {
   byOffer?: { key: string; amount: number; count: number }[];
 }
 
-export default function CashByOffer() {
+interface CashByOfferProps {
+  /** Pre-fetched cash-breakdown payload from /api/main/dashboard-data. */
+  initialData?: CashBreakdownResp;
+}
+
+export default function CashByOffer({ initialData }: CashByOfferProps = {}) {
   const { from, to } = useTimeframe();
-  const [data, setData] = useState<DonutSlice[]>([]);
-  const [loading, setLoading] = useState(true);
+  const seedSlices = (initialData?.byOffer ?? []).map((r) => ({ label: r.key, value: r.amount }));
+  const [data, setData] = useState<DonutSlice[]>(initialData ? seedSlices : []);
+  const [loading, setLoading] = useState(!initialData);
+  const seedConsumedRef = useRef(!initialData);
 
   useEffect(() => {
+    if (!seedConsumedRef.current) {
+      seedConsumedRef.current = true;
+      return;
+    }
     setLoading(true);
     fetch(`/api/main/cash-breakdown?from=${from}&to=${to}`)
       .then((r) => r.json())

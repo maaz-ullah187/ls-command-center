@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ComposedChart,
   Bar,
@@ -130,7 +130,12 @@ const VIEW_CONFIG: Record<ViewMode, {
   profit:   { label: 'Profit',   primaryColor: '#fbbf24', primaryFill: 'url(#profitFill)', paceColor: '#fbbf24', goalLabel: 'Profit goal', goodWhen: 'higher' },
 };
 
-export default function RevenueTrajectory() {
+interface RevenueTrajectoryProps {
+  /** Pre-fetched payload from /api/main/dashboard-data → revenueTrajectory. */
+  initialData?: ApiResponse;
+}
+
+export default function RevenueTrajectory({ initialData }: RevenueTrajectoryProps = {}) {
   const tf = useTimeframe();
   // the operator 2026-05-01: snap to the global timeframe filter — picking
   // "Last Month" should update this trajectory card too.
@@ -138,10 +143,15 @@ export default function RevenueTrajectory() {
   const [month, setMonth] = useState<string>(tfMonth);
   useEffect(() => { setMonth(tfMonth); }, [tfMonth]);
   const [view, setView] = useState<ViewMode>('combined');
-  const [data, setData] = useState<ApiResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ApiResponse | null>(initialData ?? null);
+  const [loading, setLoading] = useState(!initialData);
+  const seedConsumedRef = useRef(!initialData);
 
   useEffect(() => {
+    if (!seedConsumedRef.current) {
+      seedConsumedRef.current = true;
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     const load = () => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { RefreshCw } from 'lucide-react';
 import HeadlineKPIs from '@/components/main/HeadlineKPIs';
 import PaceVsProjection from '@/components/main/PaceVsProjection';
@@ -15,6 +15,22 @@ import ExpenseBreakdown from '@/components/main/ExpenseBreakdown';
 import LTVByProgram from '@/components/main/LTVByProgram';
 import ReviewQueueBanner from '@/components/ReviewQueueBanner';
 import { useDashboardData } from '@/hooks/useDashboardData';
+import { useTimeframe } from '@/lib/useTimeframe';
+
+// Aggregated dashboard payload shape — keys match RESPONSE_KEY in
+// /api/main/dashboard-data/route.ts.
+interface AggregatedDashboardData {
+  headline?: unknown;
+  revenueBuckets?: unknown;
+  revenueComposition?: unknown;
+  revenueTrajectory?: unknown;
+  cashBreakdown?: unknown;
+  ltvCac?: unknown;
+  closerLeaderboard?: unknown;
+  salesFunnel?: unknown;
+  window?: { from?: string | null; to?: string | null; month?: string | null };
+  errors?: Record<string, unknown>;
+}
 
 /**
  * Main Dashboard — `/`. Migrates Metabase board 133 into our app shell.
@@ -34,6 +50,25 @@ import { useDashboardData } from '@/hooks/useDashboardData';
  */
 function MainDashboardInner() {
   const { leads, refresh } = useDashboardData();
+  const tf = useTimeframe();
+
+  // ── Single aggregated dashboard fetch ──────────────────────────────
+  // Hits /api/main/dashboard-data which fans out to all 8 sub-routes in
+  // parallel server-side. Pre-warms every unstable_cache entry; payload is
+  // passed to components as `initialData` so they skip their first fetch.
+  // Re-runs on timeframe change so children get the fresh window.
+  const [agg, setAgg] = useState<AggregatedDashboardData | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const qs = new URLSearchParams();
+    if (tf.from) qs.set('from', tf.from);
+    if (tf.to) qs.set('to', tf.to);
+    fetch(`/api/main/dashboard-data?${qs.toString()}`, { cache: 'no-store' })
+      .then((r) => r.json())
+      .then((d) => { if (!cancelled) setAgg(d as AggregatedDashboardData); })
+      .catch(() => { if (!cancelled) setAgg(null); });
+    return () => { cancelled = true; };
+  }, [tf.from, tf.to]);
 
   // Persist Unknown-Source assignments (and any other lead-field edits from
   // the Daily Review Queue) to t16_overrides so they survive a page refresh.
@@ -91,30 +126,30 @@ function MainDashboardInner() {
       <ReviewQueueBanner leads={leads} onUpdateLead={handleUpdateLead} />
 
       {/* 3. Headline KPIs */}
-      <HeadlineKPIs />
+      <HeadlineKPIs initialRevBuckets={agg?.revenueBuckets as never} />
 
       {/* 4. Revenue Trajectory — MTD cumulative pace chart (sits above the
           numerical Pace vs Projection table so the visual story comes first) */}
-      <RevenueTrajectory />
+      <RevenueTrajectory initialData={agg?.revenueTrajectory as never} />
 
       {/* 5. Pace vs Projection (numerical detail) */}
       <PaceVsProjection />
 
       {/* 5. Combined Closer + CSM Leaderboard */}
-      <CloserLeaderboardCard />
+      <CloserLeaderboardCard initialData={agg?.closerLeaderboard as never} />
 
       {/* 7. Sales Funnel by Source */}
-      <SalesFunnelBySource />
+      <SalesFunnelBySource initialData={agg?.salesFunnel as never} />
 
       {/* 8. Three donuts row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-        <RevenueComposition />
-        <CashBySource />
-        <CashByOffer />
+        <RevenueComposition initialData={agg?.revenueBuckets as never} />
+        <CashBySource initialData={agg?.cashBreakdown as never} />
+        <CashByOffer initialData={agg?.cashBreakdown as never} />
       </div>
 
       {/* 9. LTV by Program */}
-      <LTVByProgram />
+      <LTVByProgram initialData={agg?.ltvCac as never} />
 
       {/* 10. Expenses */}
       <ExpenseBreakdown />

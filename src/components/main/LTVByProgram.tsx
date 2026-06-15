@@ -31,13 +31,21 @@ interface Cohort {
   excludedZero: number;
 }
 
-export default function LTVByProgram() {
-  const [rows, setRows] = useState<LTVRow[]>([]);
-  const [cohort, setCohort] = useState<Cohort | null>(null);
-  const [loading, setLoading] = useState(true);
+interface LTVByProgramProps {
+  /** Pre-fetched data from /api/main/dashboard-data — skips initial fetch when provided. */
+  initialData?: { ltvByProgram?: LTVRow[]; cohort?: Cohort | null };
+}
+
+export default function LTVByProgram({ initialData }: LTVByProgramProps = {}) {
+  const [rows, setRows] = useState<LTVRow[]>(initialData?.ltvByProgram ?? []);
+  const [cohort, setCohort] = useState<Cohort | null>(initialData?.cohort ?? null);
+  const [loading, setLoading] = useState(!initialData);
   const [error, setError] = useState<string | null>(null);
+  const seeded = initialData !== undefined;
 
   useEffect(() => {
+    // Skip the initial self-fetch when the parent provided data via props.
+    if (seeded) return;
     let cancelled = false;
     setLoading(true);
     setError(null);
@@ -55,7 +63,7 @@ export default function LTVByProgram() {
       .catch((e) => !cancelled && setError(e?.message ?? 'fetch_failed'))
       .finally(() => !cancelled && setLoading(false));
     return () => { cancelled = true; };
-  }, []);
+  }, [seeded]);
 
   const max = rows.reduce((m, r) => Math.max(m, r.avgLtv), 0);
 

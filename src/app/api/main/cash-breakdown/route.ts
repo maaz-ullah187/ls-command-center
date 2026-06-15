@@ -1,7 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { unstable_cache } from 'next/cache';
 import { getServerSupabaseAsync } from '@/lib/supabase/server';
 
+export const revalidate = 60;
 export const dynamic = 'force-dynamic';
+
+// Cached t06 fetch for cash-breakdown. Cache key: (from, to).
+type CashRow = {
+  cash_collected: number | string | null;
+  source: string | null;
+  offer: string | null;
+};
+
+const fetchCashRows = unstable_cache(
+  async (from: string, to: string): Promise<CashRow[]> => {
+    const supa = await getServerSupabaseAsync();
+    if (!supa) return [];
+    const { data, error } = await supa
+      .from('t06_deals_closed')
+      .select('cash_collected, source, offer')
+      .gte('date_closed', from)
+      .lte('date_closed', to)
+      .limit(10000);
+    if (error) throw new Error(error.message ?? 'query_failed');
+    return (data ?? []) as CashRow[];
+  },
+  ['main:cash-breakdown:t06'],
+  { revalidate: 60, tags: ['t06'] },
+);
 
 /**
  * GET /api/main/cash-breakdown — "Cash by Source" + "Cash by Offer" donuts.
@@ -138,19 +164,14 @@ export async function GET(req: NextRequest) {
   // Cash by Source/Offer answers "what did closers report in
   // #new-clients", Revenue Composition answers "what hit the
   // payment processors".
-  type T06Row = {
-    cash_collected: number | string | null;
-    source: string | null;
-    offer: string | null;
-  };
-  const { data: deals, error } = await supa
-    .from('t06_deals_closed')
-    .select('cash_collected, source, offer')
-    .gte('date_closed', from)
-    .lte('date_closed', to)
-    .limit(10000);
-  if (error) {
-    return NextResponse.json({ error: error.message ?? 'query_failed', window: { from, to } }, { status: 502 });
+  // t06 reads are cached for 60s per (from,to) via unstable_cache.
+  type T06Row = CashRow;
+  let deals: T06Row[];
+  try {
+    deals = await fetchCashRows(from, to);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'query_failed';
+    return NextResponse.json({ error: message, window: { from, to } }, { status: 502 });
   }
 
   type Slice = { key: string; amount: number; count: number };

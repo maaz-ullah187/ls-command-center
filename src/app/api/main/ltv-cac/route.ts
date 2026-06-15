@@ -1,7 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { unstable_cache } from 'next/cache';
 import { getServerSupabaseAsync } from '@/lib/supabase/server';
 
+export const revalidate = 60;
 export const dynamic = 'force-dynamic';
+
+// Cached t_client_ledger fetch. No date params — whole table, 60s TTL.
+type LtvRow = {
+  client_email: string | null;
+  program: string | null;
+  status: string | null;
+  total_paid_lifetime: number | string | null;
+  date_paid: string | null;
+};
+
+const fetchClientLedger = unstable_cache(
+  async (): Promise<LtvRow[]> => {
+    const supa = await getServerSupabaseAsync();
+    if (!supa) return [];
+    const all: LtvRow[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await supa
+        .from('t_client_ledger')
+        .select('client_email, program, status, total_paid_lifetime, date_paid')
+        .range(from, from + 999);
+      if (error) throw new Error(error.message ?? 'query_failed');
+      if (!data || data.length === 0) break;
+      all.push(...(data as LtvRow[]));
+      if (data.length < 1000) break;
+    }
+    return all;
+  },
+  ['main:ltv-cac:t_client_ledger'],
+  { revalidate: 60, tags: ['t_client_ledger'] },
+);
 
 /**
  * GET /api/main/ltv-cac
@@ -76,25 +108,14 @@ export async function GET(_req: NextRequest) {
     return NextResponse.json({ ltvByProgram: [], configured: false });
   }
 
-  type Row = {
-    client_email: string | null;
-    program: string | null;
-    status: string | null;
-    total_paid_lifetime: number | string | null;
-    date_paid: string | null;
-  };
-  const clients: Row[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await supa
-      .from('t_client_ledger')
-      .select('client_email, program, status, total_paid_lifetime, date_paid')
-      .range(from, from + 999);
-    if (error) {
-      return NextResponse.json({ error: error.message ?? 'query_failed' }, { status: 502 });
-    }
-    if (!data || data.length === 0) break;
-    clients.push(...(data as Row[]));
-    if (data.length < 1000) break;
+  // Cached via unstable_cache (60s TTL). Whole-table read, no params.
+  type Row = LtvRow;
+  let clients: Row[];
+  try {
+    clients = await fetchClientLedger();
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'query_failed';
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 
   const cutoff = new Date();

@@ -1,8 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { unstable_cache } from 'next/cache';
 import { getServerSupabaseAsync } from '@/lib/supabase/server';
 import { monthYM_ET } from '@/lib/timeframe';
 
+export const revalidate = 60;
 export const dynamic = 'force-dynamic';
+
+// Cached t07 fetch for the revenue-buckets route. Paginates internally so
+// the entire month's rows arrive in a single cache entry. Cache key: (from,to).
+type BucketsRow = {
+  final_amount: number | string | null;
+  amount: number | string | null;
+  status: string | null;
+  payment_type: string | null;
+  offer: string | null;
+  processor: string | null;
+};
+
+const fetchBucketsRows = unstable_cache(
+  async (from: string, to: string): Promise<BucketsRow[]> => {
+    const supa = await getServerSupabaseAsync();
+    if (!supa) return [];
+    const all: BucketsRow[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supa
+        .from('t07_income_processors')
+        .select('final_amount, amount, status, payment_type, offer, processor')
+        .eq('review_status', 'approved')  // ← Payment Review Queue gate
+        .gte('date', from)
+        .lte('date', to)
+        .range(offset, offset + 999);
+      if (error) throw new Error(error.message ?? 'query_failed');
+      if (!data || data.length === 0) break;
+      all.push(...(data as BucketsRow[]));
+      if (data.length < 1000) break;
+    }
+    return all;
+  },
+  ['main:revenue-buckets:t07'],
+  { revalidate: 60, tags: ['t07'] },
+);
 
 /**
  * GET /api/main/revenue-buckets?from=YYYY-MM-DD&to=YYYY-MM-DD
@@ -86,30 +123,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'supabase_not_configured', configured: false }, { status: 500 });
   }
 
-  // Pull every t07 row in the month. Paginate (default cap is 1000).
-  type Row = {
-    final_amount: number | string | null;
-    amount: number | string | null;
-    status: string | null;
-    payment_type: string | null;
-    offer: string | null;
-    processor: string | null;
-  };
-  const all: Row[] = [];
-  for (let offset = 0; ; offset += 1000) {
-    const { data, error } = await supa
-      .from('t07_income_processors')
-      .select('final_amount, amount, status, payment_type, offer, processor')
-      .eq('review_status', 'approved')  // ← Payment Review Queue gate
-      .gte('date', from)
-      .lte('date', to)
-      .range(offset, offset + 999);
-    if (error) {
-      return NextResponse.json({ error: error.message ?? 'query_failed', monthYear: label }, { status: 502 });
-    }
-    if (!data || data.length === 0) break;
-    all.push(...(data as Row[]));
-    if (data.length < 1000) break;
+  // Pull every t07 row in the month. Backed by unstable_cache (60s TTL) so
+  // repeat requests for the same (from,to) skip Supabase entirely.
+  let all: BucketsRow[];
+  try {
+    all = await fetchBucketsRows(from, to);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'query_failed';
+    return NextResponse.json({ error: message, monthYear: label }, { status: 502 });
   }
 
   let newCash = 0;

@@ -1,7 +1,43 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { unstable_cache } from 'next/cache';
 import { getServerSupabaseAsync } from '@/lib/supabase/server';
 
+export const revalidate = 60;
 export const dynamic = 'force-dynamic';
+
+// Cached t07 fetch for revenue-trajectory. Used by both the current-period
+// and prior-period queries, so a single helper keyed by (from,to) serves both.
+type TrajRow = {
+  date: string;
+  final_amount: number | string | null;
+  amount: number | string | null;
+  status: string | null;
+  payment_type: string | null;
+};
+
+const fetchTrajectoryRows = unstable_cache(
+  async (from: string, to: string): Promise<TrajRow[]> => {
+    const supa = await getServerSupabaseAsync();
+    if (!supa) return [];
+    const all: TrajRow[] = [];
+    for (let offset = 0; ; offset += 1000) {
+      const { data, error } = await supa
+        .from('t07_income_processors')
+        .select('date, final_amount, amount, status, payment_type')
+        .eq('review_status', 'approved')  // ← Payment Review Queue gate
+        .gte('date', from)
+        .lte('date', to)
+        .range(offset, offset + 999);
+      if (error) throw new Error(error.message ?? 'query_failed');
+      if (!data || data.length === 0) break;
+      all.push(...(data as TrajRow[]));
+      if (data.length < 1000) break;
+    }
+    return all;
+  },
+  ['main:revenue-trajectory:t07'],
+  { revalidate: 60, tags: ['t07'] },
+);
 
 /**
  * GET /api/main/revenue-trajectory?month=YYYY-MM
@@ -87,29 +123,15 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Pull all paid + refund t07 rows + t08 expenses for the month ────
-  type Row = {
-    date: string;
-    final_amount: number | string | null;
-    amount: number | string | null;
-    status: string | null;
-    payment_type: string | null;
-  };
+  // t07 reads are cached for 60s per (from,to) via unstable_cache.
+  type Row = TrajRow;
   type ExpRow = { date: string; amount: number | string | null; expense_type: string | null };
-  const all: Row[] = [];
-  for (let offset = 0; ; offset += 1000) {
-    const { data, error } = await supa
-      .from('t07_income_processors')
-      .select('date, final_amount, amount, status, payment_type')
-      .eq('review_status', 'approved')  // ← Payment Review Queue gate
-      .gte('date', from)
-      .lte('date', to)
-      .range(offset, offset + 999);
-    if (error) {
-      return NextResponse.json({ error: error.message ?? 'query_failed' }, { status: 502 });
-    }
-    if (!data || data.length === 0) break;
-    all.push(...(data as Row[]));
-    if (data.length < 1000) break;
+  let all: Row[];
+  try {
+    all = await fetchTrajectoryRows(from, to);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'query_failed';
+    return NextResponse.json({ error: message }, { status: 502 });
   }
 
   // Pull expenses for the month (t08). Treat 'personal'/'unknown' as
@@ -298,18 +320,15 @@ export async function GET(req: NextRequest) {
     const priorTo = `${priorYear}-${pad(priorMon)}-${pad(priorLast)}`;
     priorMonthLabel = priorMonObj.toLocaleString('en-US', { month: 'long', year: 'numeric' });
 
-    const priorRows: Row[] = [];
-    for (let off = 0; ; off += 1000) {
-      const { data } = await supa
-        .from('t07_income_processors')
-        .select('date, final_amount, amount, status, payment_type')
-        .eq('review_status', 'approved')  // ← Payment Review Queue gate
-        .gte('date', priorFrom)
-        .lte('date', priorTo)
-        .range(off, off + 999);
-      if (!data || data.length === 0) break;
-      priorRows.push(...(data as Row[]));
-      if (data.length < 1000) break;
+    // Prior-period t07 read goes through the same cached helper so a
+    // repeat request for the same month hits cache for both windows.
+    let priorRows: Row[] = [];
+    try {
+      priorRows = await fetchTrajectoryRows(priorFrom, priorTo);
+    } catch {
+      // Prior-period fetch failure is non-fatal — the chart overlay is
+      // optional. Fall through with the empty array.
+      priorRows = [];
     }
     const priorDaily = new Map<string, number>();
     for (let day = 1; day <= priorLast; day += 1) {

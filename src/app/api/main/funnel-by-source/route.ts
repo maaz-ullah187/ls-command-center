@@ -48,7 +48,11 @@ interface Row {
   closePct: number;
 }
 
-export async function GET(req: NextRequest) {
+/**
+ * Exported response-builder so /api/main/dashboard-data can call this logic
+ * directly without an HTTP round-trip. GET handler is now a thin re-export.
+ */
+export async function buildFunnelBySourceResponse(req: NextRequest) {
   const url = new URL(req.url);
   const window = timeframeFromSearchParams(url.searchParams);
 
@@ -135,3 +139,6 @@ export async function GET(req: NextRequest) {
   const rows = Array.from(byKey.values()).sort((a, b) => b.cash - a.cash);
   return NextResponse.json({ rows, window, configured: true });
 }
+
+
+export const GET = buildFunnelBySourceResponse;

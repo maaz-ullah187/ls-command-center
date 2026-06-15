@@ -137,7 +137,11 @@ function bestOffer(t07Offer: string | null, t06Offer: string | null): string {
   return canonOffer(t06Offer);
 }
 
-export async function GET(req: NextRequest) {
+/**
+ * Exported response-builder so /api/main/dashboard-data can call this logic
+ * directly without an HTTP round-trip. GET handler is now a thin re-export.
+ */
+export async function buildCashBreakdownResponse(req: NextRequest) {
   const url = new URL(req.url);
   // the operator 2026-05-01: Cash by Source / Offer pass `?from=&to=` from the
   // global timeframe filter. Honor those first; only fall back to month=
@@ -216,3 +220,6 @@ export async function GET(req: NextRequest) {
     },
   });
 }
+
+
+export const GET = buildCashBreakdownResponse;

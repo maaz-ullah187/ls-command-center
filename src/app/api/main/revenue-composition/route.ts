@@ -46,23 +46,19 @@ const fetchCompositionRows = unstable_cache(
   { revalidate: 60, tags: ['t07'] },
 );
 
-export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const window = timeframeFromSearchParams(url.searchParams);
+/**
+ * Exported response-builder so /api/main/dashboard-data can call this logic
+ * directly without an HTTP round-trip.
+ */
+export async function buildRevenueCompositionResponse(searchParams: URLSearchParams) {
+  const window = timeframeFromSearchParams(searchParams);
 
   const supa = await getServerSupabaseAsync();
   if (!supa) {
-    return NextResponse.json({ slices: [], window, configured: false });
+    return { slices: [], window, configured: false };
   }
 
-  let rows: CompositionRow[];
-  try {
-    rows = await fetchCompositionRows(window.from, window.to);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'query_failed';
-    return NextResponse.json({ error: message, window }, { status: 502 });
-  }
-
+  const rows = await fetchCompositionRows(window.from, window.to);
   // Drop 'excluded' rows — payments your team marked as wrong-business / mis-routed.
   // Those rows keep their audit trail in t07 but never count toward revenue cards.
   const filtered = rows.filter((r) => r.payment_type !== 'excluded');
@@ -70,5 +66,16 @@ export async function GET(req: NextRequest) {
     filtered as unknown as Parameters<typeof aggregateRevenueComposition>[0],
     window,
   );
-  return NextResponse.json({ slices, window, configured: true });
+  return { slices, window, configured: true };
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const body = await buildRevenueCompositionResponse(url.searchParams);
+    return NextResponse.json(body);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'query_failed';
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 }

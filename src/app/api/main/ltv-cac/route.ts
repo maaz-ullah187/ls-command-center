@@ -102,7 +102,11 @@ function parseLedgerDate(raw: string | null | undefined): string | null {
   return null;
 }
 
-export async function GET(_req: NextRequest) {
+/**
+ * Exported response-builder so /api/main/dashboard-data can call this logic
+ * directly without an HTTP round-trip. GET handler is now a thin re-export.
+ */
+export async function buildLtvCacResponse(_req: NextRequest) {
   const supa = await getServerSupabaseAsync();
   if (!supa) {
     return NextResponse.json({ ltvByProgram: [], configured: false });
@@ -176,3 +180,6 @@ export async function GET(_req: NextRequest) {
     configured: true,
   });
 }
+
+
+export const GET = buildLtvCacResponse;

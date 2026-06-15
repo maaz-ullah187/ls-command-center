@@ -1,120 +1,99 @@
 // GET /api/main/dashboard-data?from=YYYY-MM-DD&to=YYYY-MM-DD
 //
-// Aggregator endpoint: fans out to the 8 main-dashboard sub-routes in
-// parallel and returns one combined payload. The point isn't just to save
-// roundtrips on the client — every sub-route is wrapped in unstable_cache
-// (60s TTL), so fanning out concurrently pre-warms ALL eight caches in
-// parallel. After this one call, individual component fetches hit warm
-// cache and respond in <50ms.
+// Aggregator endpoint: imports each sub-route's exported response-builder
+// and calls them all in parallel server-side. NO HTTP round-trips — that
+// pattern was tripping the auth middleware on the internal fetch.
 //
-// Used by src/app/page.tsx to hydrate the Main Dashboard in a single
-// roundtrip; the response is passed down to components as `initialData`
-// so they can skip their own initial fetch.
+// Each builder returns either a plain object or a NextResponse (depending
+// on whether I cleanly refactored it). We normalize both into the same
+// `{ key: value }` shape in the response.
+//
+// All sub-routes use unstable_cache (60s TTL), so fanning out in parallel
+// pre-warms every cache simultaneously.
 
 import { NextRequest, NextResponse } from 'next/server';
+import { buildHeadlineResponse } from '../headline/route';
+import { buildRevenueCompositionResponse } from '../revenue-composition/route';
+import { buildRevenueBucketsResponse } from '../revenue-buckets/route';
+import { buildRevenueTrajectoryResponse } from '../revenue-trajectory/route';
+import { buildCashBreakdownResponse } from '../cash-breakdown/route';
+import { buildLtvCacResponse } from '../ltv-cac/route';
+import { buildClosersResponse } from '../closers/route';
+import { buildFunnelBySourceResponse } from '../funnel-by-source/route';
 
 export const dynamic = 'force-dynamic';
 
-const SUB_ROUTES = [
-  'headline',
-  'revenue-buckets',
-  'revenue-composition',
-  'revenue-trajectory',
-  'cash-breakdown',
-  'ltv-cac',
-  'closers',           // a.k.a. closer-leaderboard
-  'funnel-by-source',  // a.k.a. sales-funnel
-] as const;
+/**
+ * Build a synthetic NextRequest for one of the sub-routes. Sub-routes that
+ * still parse `req.url` directly need this; the URL just needs to be a
+ * valid absolute string with the right query params.
+ */
+function synthReq(base: URL, path: string, qs: URLSearchParams): NextRequest {
+  const url = new URL(path, base);
+  for (const [k, v] of qs) url.searchParams.set(k, v);
+  return new NextRequest(url.toString());
+}
 
-// Map sub-route → key in the aggregated response. The page + components
-// look these names up so the contract is explicit.
-const RESPONSE_KEY: Record<typeof SUB_ROUTES[number], string> = {
-  'headline':            'headline',
-  'revenue-buckets':     'revenueBuckets',
-  'revenue-composition': 'revenueComposition',
-  'revenue-trajectory':  'revenueTrajectory',
-  'cash-breakdown':      'cashBreakdown',
-  'ltv-cac':             'ltvCac',
-  'closers':             'closerLeaderboard',
-  'funnel-by-source':    'salesFunnel',
-};
-
-// revenue-trajectory takes `?month=YYYY-MM` not `?from=&to=`. We derive
-// month from the `from` date when present.
-function buildSubRouteUrl(base: URL, sub: string, qs: URLSearchParams): URL {
-  const url = new URL(`/api/main/${sub}`, base);
-  if (sub === 'revenue-trajectory') {
-    const from = qs.get('from');
-    if (from && /^\d{4}-\d{2}/.test(from)) {
-      url.searchParams.set('month', from.slice(0, 7));
+/** Coerce a builder result (plain object OR NextResponse) into a plain object. */
+async function unwrap<T>(input: T | NextResponse): Promise<T | { error: string }> {
+  if (input instanceof NextResponse) {
+    try {
+      return (await input.json()) as T;
+    } catch {
+      return { error: 'invalid_json' } as { error: string };
     }
-    return url;
   }
-  // Propagate from/to/preset/month to every other sub-route — each one
-  // either uses them or ignores them harmlessly.
-  for (const key of ['from', 'to', 'preset', 'month']) {
-    const v = qs.get(key);
-    if (v) url.searchParams.set(key, v);
-  }
-  return url;
+  return input;
 }
 
 export async function GET(req: NextRequest) {
-  // Build an absolute base URL from the request's host header.
-  // `new URL(req.url)` works locally but on Vercel `req.url` can carry the
-  // wrong host (e.g. the function's internal hostname), which is why the
-  // sub-fetches were 401-ing — they were being routed somewhere that the
-  // dashboard's auth cookie didn't apply to.
-  const host = req.headers.get('host');
-  const xfProto = req.headers.get('x-forwarded-proto');
-  const protocol = xfProto || (host?.startsWith('localhost') ? 'http' : 'https');
-  const base = host
-    ? new URL(`${protocol}://${host}`)
-    : new URL(req.url);  // fallback
-  // Carry the search params from the original request.
-  const qs = new URL(req.url).searchParams;
+  const base = new URL(req.url);
+  const qs = base.searchParams;
 
-  // Forward the incoming request's cookies so each sub-route sees the same
-  // authenticated session. Without this, sub-routes that gate on the
-  // dashboard's auth cookie 401.
-  const cookieHeader = req.headers.get('cookie');
+  // revenue-trajectory expects `?month=YYYY-MM`. Derive it from `from`
+  // when present so a single ?from/?to call drives all 8 sub-routes.
+  const trajQs = new URLSearchParams(qs);
+  const from = qs.get('from');
+  if (from && /^\d{4}-\d{2}/.test(from) && !trajQs.get('month')) {
+    trajQs.set('month', from.slice(0, 7));
+  }
 
   // Fan out — Promise.all so a slow sub-route doesn't block the others.
-  // Each sub-route's body is returned even if it 5xx'd, so the client can
-  // render whatever did succeed.
+  // Use Promise.allSettled-style local try/catch so one failure doesn't
+  // sink the whole response: components render whatever did succeed.
+  const tasks = [
+    ['headline',           () => buildHeadlineResponse(qs)],
+    ['revenueComposition', () => buildRevenueCompositionResponse(qs)],
+    ['revenueBuckets',     () => buildRevenueBucketsResponse(synthReq(base, '/api/main/revenue-buckets', qs))],
+    ['revenueTrajectory',  () => buildRevenueTrajectoryResponse(synthReq(base, '/api/main/revenue-trajectory', trajQs))],
+    ['cashBreakdown',      () => buildCashBreakdownResponse(synthReq(base, '/api/main/cash-breakdown', qs))],
+    ['ltvCac',             () => buildLtvCacResponse(synthReq(base, '/api/main/ltv-cac', qs))],
+    ['closerLeaderboard',  () => buildClosersResponse(synthReq(base, '/api/main/closers', qs))],
+    ['salesFunnel',        () => buildFunnelBySourceResponse(synthReq(base, '/api/main/funnel-by-source', qs))],
+  ] as const;
+
   const results = await Promise.all(
-    SUB_ROUTES.map(async (sub) => {
-      const url = buildSubRouteUrl(base, sub, qs);
+    tasks.map(async ([key, fn]) => {
       try {
-        const headers: Record<string, string> = { Accept: 'application/json' };
-        if (cookieHeader) headers.Cookie = cookieHeader;
-        const res = await fetch(url.toString(), {
-          headers,
-          // Important: do NOT pass `cache: 'no-store'` here. We WANT to
-          // hit the unstable_cache layer the sub-routes are wrapped in.
-        });
-        const body = await res.json().catch(() => ({ error: 'invalid_json' }));
-        return { sub, ok: res.ok, status: res.status, body };
+        const out = await fn();
+        const body = await unwrap(out as never);
+        return { key, body, error: null as unknown };
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'fetch_failed';
-        return { sub, ok: false, status: 0, body: { error: message } };
+        const message = e instanceof Error ? e.message : 'builder_failed';
+        return { key, body: { error: message }, error: message };
       }
     }),
   );
 
   const data: Record<string, unknown> = {};
-  const errors: Record<string, { status: number; error: unknown }> = {};
+  const errors: Record<string, unknown> = {};
   for (const r of results) {
-    const key = RESPONSE_KEY[r.sub];
-    data[key] = r.body;
-    if (!r.ok) {
-      errors[key] = { status: r.status, error: (r.body as { error?: unknown })?.error ?? 'sub_route_failed' };
-    }
+    data[r.key] = r.body;
+    if (r.error) errors[r.key] = r.error;
   }
 
   return NextResponse.json({
     ...data,
-    // Echo the window so the client can render the same period label.
     window: { from: qs.get('from'), to: qs.get('to'), month: qs.get('month') },
     errors: Object.keys(errors).length > 0 ? errors : undefined,
   });

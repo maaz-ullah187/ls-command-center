@@ -111,7 +111,11 @@ function monthBounds(monthParam: string | null): { from: string; to: string; yea
   };
 }
 
-export async function GET(req: NextRequest) {
+/**
+ * Exported response-builder so /api/main/dashboard-data can call this logic
+ * directly without an HTTP round-trip. GET handler is now a thin re-export.
+ */
+export async function buildRevenueTrajectoryResponse(req: NextRequest) {
   const url = new URL(req.url);
   const monthParam = url.searchParams.get('month');
   const { from, to, year, mon } = monthBounds(monthParam);
@@ -400,3 +404,6 @@ export async function GET(req: NextRequest) {
     }
   );
 }
+
+
+export const GET = buildRevenueTrajectoryResponse;

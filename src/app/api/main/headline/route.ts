@@ -49,9 +49,12 @@ const fetchHeadlineRows = unstable_cache(
   { revalidate: 60, tags: ['t07'] },
 );
 
-export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const window = timeframeFromSearchParams(url.searchParams);
+/**
+ * Exported response-builder so /api/main/dashboard-data can call this logic
+ * directly without an HTTP round-trip (which would trip auth middleware).
+ */
+export async function buildHeadlineResponse(searchParams: URLSearchParams) {
+  const window = timeframeFromSearchParams(searchParams);
 
   const supa = await getServerSupabaseAsync();
   if (!supa) {
@@ -64,22 +67,26 @@ export async function GET(req: NextRequest) {
       afterFinancing: 0,
       count: 0,
     };
-    return NextResponse.json({ ...empty, window, configured: false });
+    return { ...empty, window, configured: false };
   }
 
-  let rows: HeadlineRow[];
-  try {
-    rows = await fetchHeadlineRows(window.from, window.to);
-  } catch (e: unknown) {
-    const message = e instanceof Error ? e.message : 'query_failed';
-    return NextResponse.json({ error: message, window }, { status: 502 });
-  }
-
+  const rows = await fetchHeadlineRows(window.from, window.to);
   // Drop 'excluded' rows — payments marked as wrong-business via the queue's
   // Remove button. Audit trail stays in t07; revenue numbers ignore them.
   const filtered = rows.filter((r) => r.payment_type !== 'excluded');
   // aggregateHeadline coerces amount internally; the type cast just relaxes
   // the Supabase string|null → number signature so the call typechecks.
   const result = aggregateHeadline(filtered as unknown as Parameters<typeof aggregateHeadline>[0], window);
-  return NextResponse.json({ ...result, window, configured: true });
+  return { ...result, window, configured: true };
+}
+
+export async function GET(req: NextRequest) {
+  try {
+    const url = new URL(req.url);
+    const body = await buildHeadlineResponse(url.searchParams);
+    return NextResponse.json(body);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : 'query_failed';
+    return NextResponse.json({ error: message }, { status: 502 });
+  }
 }

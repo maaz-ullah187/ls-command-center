@@ -98,7 +98,12 @@ function isYMD(s: string | null): s is string {
   return !!s && /^\d{4}-\d{2}-\d{2}$/.test(s);
 }
 
-export async function GET(req: NextRequest) {
+/**
+ * Exported response-builder so /api/main/dashboard-data can call this logic
+ * directly without an HTTP round-trip (which would trip auth middleware).
+ * The route's GET handler is now a thin re-export.
+ */
+export async function buildRevenueBucketsResponse(req: NextRequest) {
   const url = new URL(req.url);
   const fromParam = url.searchParams.get('from');
   const toParam = url.searchParams.get('to');
@@ -223,3 +228,6 @@ export async function GET(req: NextRequest) {
     },
   });
 }
+
+
+export const GET = buildRevenueBucketsResponse;

@@ -28,7 +28,11 @@ export const dynamic = 'force-dynamic';
 // Add lowercase 'firstname lastname' entries for your CSMs.
 const CSM_NAMES_FALLBACK = new Set<string>([]);
 
-export async function GET(req: NextRequest) {
+/**
+ * Exported response-builder so /api/main/dashboard-data can call this logic
+ * directly without an HTTP round-trip. GET handler is now a thin re-export.
+ */
+export async function buildClosersResponse(req: NextRequest) {
   const url = new URL(req.url);
   const window = timeframeFromSearchParams(url.searchParams);
 
@@ -226,3 +230,6 @@ export async function GET(req: NextRequest) {
     });
   return NextResponse.json({ rows, window, configured: true });
 }
+
+
+export const GET = buildClosersResponse;

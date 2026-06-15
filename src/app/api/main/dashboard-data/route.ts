@@ -60,8 +60,24 @@ function buildSubRouteUrl(base: URL, sub: string, qs: URLSearchParams): URL {
 }
 
 export async function GET(req: NextRequest) {
-  const base = new URL(req.url);
-  const qs = base.searchParams;
+  // Build an absolute base URL from the request's host header.
+  // `new URL(req.url)` works locally but on Vercel `req.url` can carry the
+  // wrong host (e.g. the function's internal hostname), which is why the
+  // sub-fetches were 401-ing — they were being routed somewhere that the
+  // dashboard's auth cookie didn't apply to.
+  const host = req.headers.get('host');
+  const xfProto = req.headers.get('x-forwarded-proto');
+  const protocol = xfProto || (host?.startsWith('localhost') ? 'http' : 'https');
+  const base = host
+    ? new URL(`${protocol}://${host}`)
+    : new URL(req.url);  // fallback
+  // Carry the search params from the original request.
+  const qs = new URL(req.url).searchParams;
+
+  // Forward the incoming request's cookies so each sub-route sees the same
+  // authenticated session. Without this, sub-routes that gate on the
+  // dashboard's auth cookie 401.
+  const cookieHeader = req.headers.get('cookie');
 
   // Fan out — Promise.all so a slow sub-route doesn't block the others.
   // Each sub-route's body is returned even if it 5xx'd, so the client can
@@ -70,9 +86,10 @@ export async function GET(req: NextRequest) {
     SUB_ROUTES.map(async (sub) => {
       const url = buildSubRouteUrl(base, sub, qs);
       try {
+        const headers: Record<string, string> = { Accept: 'application/json' };
+        if (cookieHeader) headers.Cookie = cookieHeader;
         const res = await fetch(url.toString(), {
-          // Don't propagate cookies — these sub-routes don't need auth.
-          headers: { Accept: 'application/json' },
+          headers,
           // Important: do NOT pass `cache: 'no-store'` here. We WANT to
           // hit the unstable_cache layer the sub-routes are wrapped in.
         });

@@ -429,7 +429,13 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
     // Architecture B: t07_income_processors via /api/main/revenue-buckets.
     // Same source as Revenue Composition donut → guaranteed reconciliation.
     const newCash = currentRev?.newCash ?? 0;
-    const refunds = Math.abs(currentRev?.refunds ?? 0);
+    const computedRefunds = Math.abs(currentRev?.refunds ?? 0);
+    // Operator override (metric_key='refunds') wins over the computed value.
+    // When set, we ALSO recompute netRevenue so the cards stay reconciled —
+    // overriding refunds without flowing through to Net Revenue would let
+    // the two figures contradict each other on the same row.
+    const refundsOverride = overrides['refunds'];
+    const refunds = refundsOverride !== undefined ? Math.abs(refundsOverride) : computedRefunds;
     // Backend = AR + upsells/renewals + mastermind. Uncategorized rolls in
     // here too (it's revenue we KNOW we collected, just not yet bucketed —
     // the queue work shrinks this and grows the named buckets, but the
@@ -439,7 +445,11 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
       (currentRev?.upsellRenewal ?? 0) +
       (currentRev?.mastermind ?? 0) +
       (currentRev?.uncategorized ?? 0);
-    const netRevenue = currentRev?.netRevenue ?? newCash + backend - refunds;
+    // Always derive netRevenue locally (newCash + backend - refunds) so the
+    // refunds override flows through. Previously we preferred the server's
+    // pre-computed currentRev.netRevenue, which baked in the un-overridden
+    // refunds value and ignored the operator's correction.
+    const netRevenue = newCash + backend - refunds;
     const totalExpenses = currentExpensesTotal ?? 0;
     const netProfit = netRevenue - totalExpenses;
     const marginPct = netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0;
@@ -449,7 +459,7 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
     const activeClients = sheetRevenue.activeClientCount ?? 0;
     const depositRevenue = currentRev?.depositRevenue ?? 0;
     return { newCash, refunds, backend, netRevenue, totalExpenses, netProfit, marginPct, activeClients, depositRevenue };
-  }, [currentRev, currentExpensesTotal, sheetRevenue]);
+  }, [currentRev, currentExpensesTotal, sheetRevenue, overrides]);
 
   const priorKpis = useMemo(() => {
     if (!priorRev && !priorRevBuckets) return null;
@@ -548,19 +558,45 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
             />
           );
         })()}
-        <KPICard
-          cardId="main:headline:refunds"
-          label="Refunds"
-          Icon={Undo2}
-          value={`-${fmtUSD(kpis.refunds)}`}
-          exact={`-${fmtUSD(kpis.refunds)}`}
-          current={kpis.refunds}
-          prior={priorKpis?.refunds ?? null}
-          inverse
-          priorLabel={priorLabel}
-          periodLabel={periodLabel}
-          loading={loading}
-        />
+        {(() => {
+          const override = overrides['refunds'];
+          const isOverridden = override !== undefined;
+          return (
+            <KPICard
+              cardId="main:headline:refunds"
+              label="Refunds"
+              Icon={Undo2}
+              value={`-${fmtUSD(kpis.refunds)}`}
+              exact={`-${fmtUSD(kpis.refunds)}`}
+              current={kpis.refunds}
+              prior={priorKpis?.refunds ?? null}
+              inverse
+              priorLabel={priorLabel}
+              periodLabel={periodLabel}
+              loading={loading}
+              edit={month ? {
+                editing: editingMetric === 'refunds',
+                draft: editDraft,
+                setDraft: setEditDraft,
+                onStartEdit: () => {
+                  setEditDraft(String(isOverridden ? Math.abs(override) : Math.round(kpis.refunds)));
+                  setEditingMetric('refunds');
+                },
+                onCancelEdit: () => setEditingMetric(null),
+                onSaveEdit: () => {
+                  const parsed = parseFloat(editDraft);
+                  if (!Number.isFinite(parsed)) {
+                    setEditingMetric(null);
+                    return;
+                  }
+                  saveOverride('refunds', parsed);
+                },
+                saving: editSaving,
+                isOverridden,
+              } : undefined}
+            />
+          );
+        })()}
         <KPICard
           cardId="main:headline:net-revenue"
           label="Net Revenue"

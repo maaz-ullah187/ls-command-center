@@ -29,7 +29,10 @@ export default function ProjectionsPage() {
   });
 
   const { leads: rawLeads, ads: rawAds, sheetRevenue, loading } =
-    useDashboardData({ dateRange });
+    useDashboardData({
+      dateRange,
+      sources: ['leads', 'ads', 'sheetRevenue'],
+    });
 
   // Date-scope leads + ads the same way Dashboard.tsx does. Ads without a
   // `date` field (aggregate rows) pass through since we can't time-bound them.

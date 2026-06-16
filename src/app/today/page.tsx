@@ -116,8 +116,8 @@ function formatLongDate(iso: string): string {
 export default function TodayPage() {
   // ReviewQueueBanner needs leads (it does its own fetches for the buckets
   // that don't come from leads, but it expects a Lead[] for revenue-flag
-  // anomalies). Reuse the dashboard hook so the data is identical to /.
-  const { leads } = useDashboardData();
+  // anomalies). Reuse the dashboard hook but restrict it to only leads.
+  const { leads } = useDashboardData({ sources: ['leads'] });
   const [data, setData] = useState<Checklist | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -176,7 +176,7 @@ export default function TodayPage() {
   };
 
   return (
-    <div className="px-6 py-5 space-y-5 max-w-[1400px] mx-auto">
+    <div className="px-6 py-5 space-y-5 max-w-350 mx-auto">
       {/* Header */}
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
@@ -278,7 +278,7 @@ export default function TodayPage() {
                 </div>
 
                 {/* 14-day sparkline */}
-                <div className="h-[140px] -mx-2 mb-4">
+                <div className="h-35 -mx-2 mb-4">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
                       <XAxis
@@ -433,7 +433,7 @@ export default function TodayPage() {
                 </div>
 
                 {/* 14-day expense sparkline */}
-                <div className="h-[140px] -mx-2 mb-4">
+                <div className="h-35 -mx-2 mb-4">
                   <ResponsiveContainer width="100%" height="100%">
                     <ComposedChart data={expChartData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
                       <XAxis
@@ -560,7 +560,7 @@ export default function TodayPage() {
                 {data.bookingCapacity.closersBelowCapacity > 0 && (
                   <div className="bg-rose-900/20 border border-rose-800/40 rounded-md px-3 py-3 mb-3 space-y-2">
                     <div className="flex items-start gap-2 text-sm">
-                      <AlertCircle size={14} className="text-rose-300 flex-shrink-0 mt-0.5" />
+                      <AlertCircle size={14} className="text-rose-300 shrink-0 mt-0.5" />
                       <span className="text-rose-200">
                         <span className="font-bold uppercase tracking-wider text-[11px] text-rose-300">Emergency booking protocol:</span>{' '}
                         {data.bookingCapacity.closersBelowCapacity} of {data.bookingCapacity.closers.length} closer{data.bookingCapacity.closers.length === 1 ? '' : 's'} at or below {data.bookingCapacity.emergencyThresholdPct}% capacity across the last {data.bookingCapacity.windowDays} days.

@@ -64,6 +64,18 @@ function buildClientsFromLeads(_leads: Lead[]): Client[] {
   return [];
 }
 
+export type DashboardSourceKey =
+  | 'leads'
+  | 'ads'
+  | 'dailyMetrics'
+  | 'expenses'
+  | 'youtubeVideos'
+  | 'instagramPosts'
+  | 'manychatData'
+  | 'backendRevenue'
+  | 'mondayClients'
+  | 'sheetRevenue';
+
 export interface UseDashboardDataOptions {
   /**
    * Date range for the date-scoped main-dashboard endpoints
@@ -71,10 +83,15 @@ export interface UseDashboardDataOptions {
    * the endpoints fall back to their own default window (current month).
    */
   dateRange?: { start: string; end: string };
+  /**
+   * Restrict the hook to only fetch the listed data sources.
+   * Useful for pages like /projections that only need leads, ads, and sheetRevenue.
+   */
+  sources?: DashboardSourceKey[];
 }
 
 export function useDashboardData(options: UseDashboardDataOptions = {}): DashboardData {
-  const { dateRange } = options;
+  const { dateRange, sources } = options;
   const [leads, setLeads] = useState<Lead[]>([]);
   const [ads, setAds] = useState<Ad[]>([]);
   const [dailyMetrics, setDailyMetrics] = useState<DailyMetrics[]>([]);
@@ -107,90 +124,106 @@ export function useDashboardData(options: UseDashboardDataOptions = {}): Dashboa
       ? `?from=${encodeURIComponent(dateRange.start)}&to=${encodeURIComponent(dateRange.end)}`
       : '';
 
-    Promise.all([
-      safeFetch('/api/data/leads'),
-      safeFetch('/api/data/ads'),
-      safeFetch('/api/data/daily-metrics'),
-      safeFetch('/api/data/expenses'),
-      safeFetch('/api/data/youtube'),
-      safeFetch('/api/data/instagram'),
-      safeFetch('/api/data/manychat'),
-      // Main-dashboard endpoints (replace the legacy /api/data/* routes that
-      // are no longer maintained). Response shapes differ, so each is
-      // transformed below into the legacy types the dashboard already consumes.
-      // All three are date-scoped via the same dateRange.
-      safeFetch(`/api/main/cash-breakdown${dateQs}`),       // ← replaces /api/data/backend-revenue
-      safeFetch(`/api/main/revenue-composition${dateQs}`),  // ← replaces /api/data/monday-clients
-      safeFetch(`/api/main/revenue-buckets${dateQs}`),      // ← replaces /api/data/sheet-revenue
-    ])
-      .then(([leadsData, adsData, dailyData, expensesData, ytData, igData, mcData, cashData, compData, bucketsData]) => {
+    const sourceKeys: DashboardSourceKey[] = sources ?? [
+      'leads',
+      'ads',
+      'dailyMetrics',
+      'expenses',
+      'youtubeVideos',
+      'instagramPosts',
+      'manychatData',
+      'backendRevenue',
+      'mondayClients',
+      'sheetRevenue',
+    ];
+
+    const fetchers: Record<DashboardSourceKey, () => Promise<any>> = {
+      leads: () => safeFetch('/api/data/leads'),
+      ads: () => safeFetch('/api/data/ads'),
+      dailyMetrics: () => safeFetch('/api/data/daily-metrics'),
+      expenses: () => safeFetch('/api/data/expenses'),
+      youtubeVideos: () => safeFetch('/api/data/youtube'),
+      instagramPosts: () => safeFetch('/api/data/instagram'),
+      manychatData: () => safeFetch('/api/data/manychat'),
+      backendRevenue: () => safeFetch(`/api/main/cash-breakdown${dateQs}`),
+      mondayClients: () => safeFetch(`/api/main/revenue-composition${dateQs}`),
+      sheetRevenue: () => safeFetch(`/api/main/revenue-buckets${dateQs}`),
+    };
+
+    const requests = sourceKeys.map((key) => [key, fetchers[key]()] as const);
+
+    Promise.all(requests.map(([, req]) => req))
+      .then((results) => {
         if (cancelled) return;
-        if (leadsData) setLeads(Array.isArray(leadsData) ? leadsData : []);
-        if (adsData) setAds(Array.isArray(adsData) ? adsData : []);
-        if (dailyData) setDailyMetrics(Array.isArray(dailyData) ? dailyData : []);
-        if (expensesData) setExpenses(Array.isArray(expensesData) ? expensesData : []);
-        if (ytData) setYoutubeVideos(Array.isArray(ytData) ? ytData : []);
-        if (igData) setInstagramPosts(Array.isArray(igData) ? igData : []);
-        if (mcData) setManychatData(mcData && mcData.leads ? mcData : emptyMC);
-
-        // ─── backendRevenue ← /api/main/cash-breakdown ─────────────────────
-        // cash-breakdown returns { total, bySource[], byOffer[] }. Map the
-        // total into totalBackend so legacy cards keep reading the right
-        // headline number. The per-program breakdown (newCash / renewals /
-        // upsells / arCollected) isn't directly available from this endpoint
-        // — those finer splits come from revenue-composition below and are
-        // mirrored here so consumers that pull from backendRevenue still work.
-        if (cashData && typeof cashData.total === 'number') {
-          const slices = (compData?.slices ?? []) as Array<{ category: string; amount: number }>;
-          const sliceAmt = (cat: string) =>
-            slices.find(s => s.category === cat)?.amount ?? 0;
-          setBackendRevenue({
-            newCash:     sliceAmt('new'),
-            renewals:    sliceAmt('renewals_upsells'),
-            upsells:     0, // renewals and upsells are collapsed in revenue-composition
-            arCollected: sliceAmt('ar'),
-            totalBackend: cashData.total,
-            breakdown: {
-              whopInitial: 0,
-              whopRenewal: 0,
-              whopUpgrade: 0,
-              whopOther: 0,
-              slackNewClientCash: 0,
-              slackPaymentSucceeded: 0,
-            },
-          });
-        }
-
-        // ─── mondayClients ← /api/main/revenue-composition ─────────────────
-        // Note: revenue-composition returns donut slices, not a per-client
-        // list. The MondayClient[] shape can't be derived from it, so
-        // BackEndTab (which renders per-client rows) will show empty until
-        // a real client-list endpoint is wired up.
-        setMondayClients([]);
-
-        // ─── sheetRevenue ← /api/main/revenue-buckets ──────────────────────
-        // revenue-buckets returns the per-category split AND headline totals
-        // straight from t07_income_processors, so the previous combo with
-        // revenue-composition is no longer needed for these fields.
-        // Shape: { monthYear, newCash, ar, upsellRenewal, mastermind,
-        //          uncategorized, refunds, grossInflow, netRevenue, ... }
-        if (bucketsData && typeof bucketsData.netRevenue === 'number') {
-          setSheetRevenue({
-            month: bucketsData.monthYear ?? '',
-            newCash:      bucketsData.newCash ?? 0,
-            refunds:      bucketsData.refunds ?? 0,
-            ar:           bucketsData.ar ?? 0,
-            renewals:     bucketsData.upsellRenewal ?? 0,
-            upgrades:     0, // upsells + renewals collapsed in revenue-buckets
-            mastermind:   bucketsData.mastermind ?? 0,
-            totalRevenue: bucketsData.grossInflow ?? 0,
-            netRevenue:   bucketsData.netRevenue,
-            // revenue-buckets doesn't return per-client counts; consumers that
-            // need them should source from a dedicated clients endpoint.
-            clientCount:        0,
-            activeClientCount:  0,
-          });
-        }
+        results.forEach((data, index) => {
+          const key = requests[index][0];
+          if (!data) return;
+          switch (key) {
+            case 'leads':
+              setLeads(Array.isArray(data) ? data : []);
+              break;
+            case 'ads':
+              setAds(Array.isArray(data) ? data : []);
+              break;
+            case 'dailyMetrics':
+              setDailyMetrics(Array.isArray(data) ? data : []);
+              break;
+            case 'expenses':
+              setExpenses(Array.isArray(data) ? data : []);
+              break;
+            case 'youtubeVideos':
+              setYoutubeVideos(Array.isArray(data) ? data : []);
+              break;
+            case 'instagramPosts':
+              setInstagramPosts(Array.isArray(data) ? data : []);
+              break;
+            case 'manychatData':
+              setManychatData(data && data.leads ? data : emptyMC);
+              break;
+            case 'backendRevenue':
+              if (data && typeof data.total === 'number') {
+                const slices = (data?.slices ?? []) as Array<{ category: string; amount: number }>;
+                const sliceAmt = (cat: string) =>
+                  slices.find(s => s.category === cat)?.amount ?? 0;
+                setBackendRevenue({
+                  newCash:     sliceAmt('new'),
+                  renewals:    sliceAmt('renewals_upsells'),
+                  upsells:     0,
+                  arCollected: sliceAmt('ar'),
+                  totalBackend: data.total,
+                  breakdown: {
+                    whopInitial: 0,
+                    whopRenewal: 0,
+                    whopUpgrade: 0,
+                    whopOther: 0,
+                    slackNewClientCash: 0,
+                    slackPaymentSucceeded: 0,
+                  },
+                });
+              }
+              break;
+            case 'mondayClients':
+              setMondayClients([]);
+              break;
+            case 'sheetRevenue':
+              if (typeof data.netRevenue === 'number') {
+                setSheetRevenue({
+                  month: data.monthYear ?? '',
+                  newCash:      data.newCash ?? 0,
+                  refunds:      data.refunds ?? 0,
+                  ar:           data.ar ?? 0,
+                  renewals:     data.upsellRenewal ?? 0,
+                  upgrades:     0,
+                  mastermind:   data.mastermind ?? 0,
+                  totalRevenue: data.grossInflow ?? 0,
+                  netRevenue:   data.netRevenue,
+                  clientCount:        0,
+                  activeClientCount:  0,
+                });
+              }
+              break;
+          }
+        });
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -199,10 +232,10 @@ export function useDashboardData(options: UseDashboardDataOptions = {}): Dashboa
     return () => {
       cancelled = true;
     };
-    // Refetch whenever the date window shifts. We depend on the primitive
-    // strings (not the dateRange object) so a new object identity with the
-    // same dates doesn't cause a redundant fetch.
-  }, [tick, dateRange?.start, dateRange?.end]);
+    // Refetch whenever the date window shifts or the requested source set
+    // changes. We depend on primitive values so new object identities with
+    // the same dates or sources don't cause redundant fetches.
+  }, [tick, dateRange?.start, dateRange?.end, sources?.join(',')]);
 
   // Build clients from leads: any Closed Won lead with cashCollected > 0
   // is a real client (Whop-enriched). Falls back to empty if no leads loaded.

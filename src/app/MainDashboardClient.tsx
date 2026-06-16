@@ -133,11 +133,11 @@ export default function MainDashboardClient({ initialAgg, initialLeads }: MainDa
   }
 
   return (
-    <div className="px-6 py-5 space-y-5 max-w-[1600px] mx-auto">
+    <div className="px-6 py-5 space-y-5 max-w-400 mx-auto">
       {/* 1. Header strip — sticky so the timeframe filter stays accessible
           while scrolling through the dashboard (the operator 2026-04-30) */}
-      <div className="sticky top-0 z-30 -mx-6 px-6 py-3 bg-[#0a0c0f]/95 backdrop-blur supports-[backdrop-filter]:bg-[#0a0c0f]/75 border-b border-gray-800/50">
-        <div className="flex items-center justify-between flex-wrap gap-3 max-w-[1600px] mx-auto">
+      <div className="sticky top-0 z-30 -mx-6 px-6 py-3 bg-[#0a0c0f]/95 backdrop-blur supports-backdrop-filter:bg-[#0a0c0f]/75 border-b border-gray-800/50">
+        <div className="flex items-center justify-between flex-wrap gap-3 max-w-400 mx-auto">
           <div>
             <h1 className="text-white font-bold text-xl">Main Dashboard</h1>
             <p className="text-[11px] text-gray-500 mt-0.5">
@@ -163,7 +163,6 @@ export default function MainDashboardClient({ initialAgg, initialLeads }: MainDa
       {/* 3. Headline KPIs */}
       <HeadlineKPIs
         initialRevBuckets={agg?.revenueBuckets as never}
-        initialExpenseBreakdown={agg?.expenseBreakdown as never}
       />
 
       {/* 4. Revenue Trajectory — MTD cumulative pace chart (sits above the
@@ -190,7 +189,7 @@ export default function MainDashboardClient({ initialAgg, initialLeads }: MainDa
       <LTVByProgram initialData={agg?.ltvCac as never} />
 
       {/* 10. Expenses */}
-      <ExpenseBreakdown initialData={agg?.expenseBreakdown as never} />
+      <ExpenseBreakdown />
     </div>
   );
 }

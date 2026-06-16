@@ -4,7 +4,7 @@ import SystemHealthTab from '@/components/SystemHealthTab';
 import { useDashboardData } from '@/hooks/useDashboardData';
 
 export default function SystemHealthPage() {
-  const { leads, loading } = useDashboardData();
+  const { leads, loading } = useDashboardData({ sources: ['leads'] });
   return (
     <div className="px-6 py-6">
       {loading && leads.length === 0 ? (

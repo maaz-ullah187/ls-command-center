@@ -104,7 +104,53 @@ export default function Dashboard() {
   // src/lib/dataSources.ts. Falls back to mock when no pillar is wired yet.
   // Main-dashboard endpoints (sheetRevenue / backendRevenue / mondayClients)
   // are date-scoped via the hoisted dateRange above.
-  const { leads: rawLeads, ads: rawAds, dailyMetrics: rawDailyMetrics, clients, expenses, youtubeVideos, instagramPosts, manychatData, backendRevenue, mondayClients, sheetRevenue } = useDashboardData({ dateRange });
+  const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
+  const [channel, setChannel] = useState<Channel | 'All'>('All');
+  const [program, setProgram] = useState('All');
+  const [businessView, setBusinessView] = useState<BusinessView>('all');
+  const [leadModalData, setLeadModalData] = useState<{ leads: Lead[]; title: string } | null>(null);
+  const [journeyLead, setJourneyLead] = useState<Lead | null>(null);
+  const [callPanelLeadId, setCallPanelLeadId] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
+    new Set(['main', 'micro', 'other'])
+  );
+
+  const requestedSources = useMemo<DashboardSourceKey[]>(() => {
+    const base: DashboardSourceKey[] = [];
+
+    if (activeTab === 'dashboard') {
+      base.push('leads', 'ads', 'dailyMetrics', 'expenses', 'backendRevenue', 'sheetRevenue');
+      if (businessView === 'backend') {
+        base.push('mondayClients');
+      }
+      if (channel === 'YouTube') {
+        base.push('youtubeVideos');
+      }
+      if (channel === 'Instagram') {
+        base.push('instagramPosts', 'manychatData');
+      }
+    }
+
+    if (activeTab === 'reports') {
+      base.push('leads', 'ads');
+    }
+
+    if (activeTab === 'projections') {
+      base.push('leads', 'ads', 'sheetRevenue');
+    }
+
+    if (activeTab === 'closers') {
+      base.push('leads', 'ads');
+    }
+
+    if (activeTab === 'system-health') {
+      base.push('leads');
+    }
+
+    return base;
+  }, [activeTab, businessView, channel]);
+
+  const { leads: rawLeads, ads: rawAds, dailyMetrics: rawDailyMetrics, clients, expenses, youtubeVideos, instagramPosts, manychatData, backendRevenue, mondayClients, sheetRevenue } = useDashboardData({ dateRange, sources: requestedSources });
   const [xPosts, setXPosts] = useState<ContentPost[]>([]);
   useEffect(() => {
     fetch('/api/data/x').then(r => r.json()).then(d => { if (Array.isArray(d)) setXPosts(d); }).catch(() => {});

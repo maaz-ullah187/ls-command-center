@@ -556,7 +556,7 @@ export default function SourceTable({ leads, ads, onViewLeads }: SourceTableProp
 
   const SH = ({ label, field, col, left }: { label: string; field: keyof RowStats; col: string; left?: boolean }) => (
     <th
-      className={`${left ? 'text-left' : 'text-right'} py-3 px-2 cursor-pointer hover:text-gray-300 select-none whitespace-nowrap relative sticky top-0 bg-[#1a1d23] z-20`}
+      className={`${left ? 'text-left' : 'text-right'} py-3 px-2 cursor-pointer hover:text-gray-300 select-none whitespace-nowrap sticky top-0 bg-[#1a1d23] z-20`}
       onClick={() => toggleSort(field)}
     >
       {label} {sortKey === field ? (sortDir === 'desc' ? '↓' : '↑') : ''}
@@ -565,7 +565,7 @@ export default function SourceTable({ leads, ads, onViewLeads }: SourceTableProp
   );
 
   const PH = ({ label, col }: { label: string; col: string }) => (
-    <th className="text-right py-3 px-2 whitespace-nowrap relative sticky top-0 bg-[#1a1d23] z-20">
+    <th className="text-right py-3 px-2 whitespace-nowrap sticky top-0 bg-[#1a1d23] z-20">
       {label}
       <ResizeHandle col={col} />
     </th>
@@ -679,7 +679,7 @@ export default function SourceTable({ leads, ads, onViewLeads }: SourceTableProp
           </colgroup>
           <thead>
             <tr className="text-[10px] text-gray-500 uppercase border-b border-gray-700/50">
-              <th className="text-left py-3 px-3 sticky left-0 top-0 bg-[#1a1d23] z-30 relative">
+              <th className="text-left py-3 px-3 sticky left-0 top-0 bg-[#1a1d23] z-30">
                 <div className="flex items-center gap-2">
                   {currentLevel !== 'ad' && rows.length > 0 && (
                     <input
@@ -747,8 +747,8 @@ export default function SourceTable({ leads, ads, onViewLeads }: SourceTableProp
           <tbody>
             {/* Totals — pinned directly below the header row so they stay
                 visible while scrolling through many rows. */}
-            <tr className="border-b-2 border-blue-500/40 bg-[#1c2430] font-semibold text-white text-[13px] [&>td]:sticky [&>td]:top-[44px] [&>td]:bg-[#1c2430]">
-              <td className="py-2.5 px-3 !sticky !left-0 !top-[44px] !bg-[#1c2430] z-20">Total</td>
+            <tr className="border-b-2 border-blue-500/40 bg-[#1c2430] font-semibold text-white text-[13px] [&>td]:sticky [&>td]:top-11 [&>td]:bg-[#1c2430]">
+              <td className="py-2.5 px-3 sticky! left-0! top-11! bg-[#1c2430]! z-20">Total</td>
               {colMode === 'paid' ? (
                 <>
                   <td className="text-right py-2.5 px-2">{money(totals.cost)}</td>
@@ -816,7 +816,7 @@ export default function SourceTable({ leads, ads, onViewLeads }: SourceTableProp
                   onClick={() => handleRowClick(row)}
                 >
                   <td className="py-2.5 px-3 font-medium text-white sticky left-0 bg-[#1a1d23] z-10">
-                    <div className="flex items-center gap-2 truncate max-w-[400px]">
+                    <div className="flex items-center gap-2 truncate max-w-100">
                       {currentLevel !== 'ad' && (
                         <input
                           type="checkbox"

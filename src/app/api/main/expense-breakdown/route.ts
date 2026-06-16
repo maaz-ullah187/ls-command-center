@@ -13,7 +13,7 @@ import { aggregateExpenseBreakdown, aggregateVendors } from '@/lib/reports/main'
  *
  * Source: t08_expenses (Mercury banking-derived).
  */
-export async function GET(req: NextRequest) {
+export async function buildExpenseBreakdownResponse(req: NextRequest) {
   const url = new URL(req.url);
   const window = timeframeFromSearchParams(url.searchParams);
   const topN = Math.min(20, Math.max(1, Number(url.searchParams.get('topVendors') ?? 10)));
@@ -38,3 +38,5 @@ export async function GET(req: NextRequest) {
   const vendors = aggregateVendors(data ?? [], window, topN);
   return NextResponse.json({ rows, vendors, window, configured: true });
 }
+
+export const GET = buildExpenseBreakdownResponse;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
@@ -19,7 +19,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { useTimeframe } from '@/lib/useTimeframe';
-import { useDashboardData } from '@/hooks/useDashboardData';
+import type { SheetRevenueSummary } from '@/hooks/useDashboardData';
 import { priorPeriodFor, priorMonthYM_ET } from '@/lib/timeframe';
 import CardFeedbackMenu from './CardFeedbackMenu';
 
@@ -263,7 +263,20 @@ interface HeadlineKPIsProps {
 
 export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = {}) {
   const tf = useTimeframe();
-  const { sheetRevenue, loading: dashLoading } = useDashboardData();
+  const [sheetRevenue, setSheetRevenue] = useState<SheetRevenueSummary>({
+    month: '',
+    newCash: 0,
+    refunds: 0,
+    ar: 0,
+    renewals: 0,
+    upgrades: 0,
+    mastermind: 0,
+    totalRevenue: 0,
+    netRevenue: 0,
+    clientCount: 0,
+    activeClientCount: 0,
+  });
+  const [sheetLoading, setSheetLoading] = useState(true);
 
   const [priorRev, setPriorRev] = useState<PriorRevenue | null>(null);
   const [priorExpensesTotal, setPriorExpensesTotal] = useState<number | null>(null);
@@ -294,6 +307,32 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
       .catch(() => { if (!cancelled) setOverrides({}); });
     return () => { cancelled = true; };
   }, [month]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSheetLoading(true);
+    fetch('/api/data/sheet-revenue', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (cancelled || !data || typeof data.activeClientCount !== 'number') return;
+        setSheetRevenue({
+          month: data.month ?? '',
+          newCash: data.newCash ?? 0,
+          refunds: data.refunds ?? 0,
+          ar: data.ar ?? 0,
+          renewals: data.renewals ?? 0,
+          upgrades: data.upgrades ?? 0,
+          mastermind: data.mastermind ?? 0,
+          totalRevenue: data.totalRevenue ?? 0,
+          netRevenue: data.netRevenue ?? 0,
+          clientCount: data.clientCount ?? 0,
+          activeClientCount: data.activeClientCount ?? 0,
+        });
+      })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setSheetLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
 
   const saveOverride = async (metric_key: string, value: number) => {
     setEditSaving(true);
@@ -441,7 +480,7 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
 
   const periodLabel = formatLongDate(tf.to);
   const priorLabel = priorRev ? formatLongDate(tf.from) : null;
-  const loading = dashLoading || priorLoading;
+  const loading = sheetLoading || priorLoading;
 
   return (
     <div className="space-y-3">

@@ -20,6 +20,7 @@ import { buildCashBreakdownResponse } from '../cash-breakdown/route';
 import { buildLtvCacResponse } from '../ltv-cac/route';
 import { buildClosersResponse } from '../closers/route';
 import { buildFunnelBySourceResponse } from '../funnel-by-source/route';
+import { buildExpenseBreakdownResponse } from '../expense-breakdown/route';
 
 export const dynamic = 'force-dynamic';
 
@@ -47,6 +48,11 @@ async function unwrap<T>(input: T | NextResponse): Promise<T | { error: string }
 }
 
 export async function GET(req: NextRequest) {
+  const data = await buildDashboardData(req);
+  return NextResponse.json(data);
+}
+
+export async function buildDashboardData(req: NextRequest) {
   const base = new URL(req.url);
   const qs = base.searchParams;
 
@@ -70,6 +76,7 @@ export async function GET(req: NextRequest) {
     ['ltvCac',             () => buildLtvCacResponse(synthReq(base, '/api/main/ltv-cac', qs))],
     ['closerLeaderboard',  () => buildClosersResponse(synthReq(base, '/api/main/closers', qs))],
     ['salesFunnel',        () => buildFunnelBySourceResponse(synthReq(base, '/api/main/funnel-by-source', qs))],
+    ['expenseBreakdown',   () => buildExpenseBreakdownResponse(synthReq(base, '/api/main/expense-breakdown', qs))],
   ] as const;
 
   const results = await Promise.all(
@@ -92,9 +99,9 @@ export async function GET(req: NextRequest) {
     if (r.error) errors[r.key] = r.error;
   }
 
-  return NextResponse.json({
+  return {
     ...data,
     window: { from: qs.get('from'), to: qs.get('to'), month: qs.get('month') },
     errors: Object.keys(errors).length > 0 ? errors : undefined,
-  });
+  };
 }

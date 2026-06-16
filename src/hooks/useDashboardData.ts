@@ -152,11 +152,14 @@ export function useDashboardData(options: UseDashboardDataOptions = {}): Dashboa
 
     const requests = sourceKeys.map((key) => [key, fetchers[key]()] as const);
 
-    Promise.all(requests.map(([, req]) => req))
+    Promise.allSettled(requests.map(([, req]) => req))
       .then((results) => {
         if (cancelled) return;
-        results.forEach((data, index) => {
+        results.forEach((result, index) => {
+          if (cancelled) return;
           const key = requests[index][0];
+          if (result.status !== 'fulfilled') return;
+          const data = result.value;
           if (!data) return;
           switch (key) {
             case 'leads':

@@ -153,19 +153,11 @@ export default function Dashboard() {
   const { leads: rawLeads, ads: rawAds, dailyMetrics: rawDailyMetrics, clients, expenses, youtubeVideos, instagramPosts, manychatData, backendRevenue, mondayClients, sheetRevenue } = useDashboardData({ dateRange, sources: requestedSources });
   const [xPosts, setXPosts] = useState<ContentPost[]>([]);
   useEffect(() => {
-    fetch('/api/data/x').then(r => r.json()).then(d => { if (Array.isArray(d)) setXPosts(d); }).catch(() => {});
+    fetch('/api/data/x')
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setXPosts(d); })
+      .catch(() => {});
   }, []);
-
-  const [activeTab, setActiveTab] = useState<MainTab>('dashboard');
-  const [channel, setChannel] = useState<Channel | 'All'>('All');
-  const [program, setProgram] = useState('All');
-  const [businessView, setBusinessView] = useState<BusinessView>('all');
-  const [leadModalData, setLeadModalData] = useState<{ leads: Lead[]; title: string } | null>(null);
-  const [journeyLead, setJourneyLead] = useState<Lead | null>(null);
-  const [callPanelLeadId, setCallPanelLeadId] = useState<string | null>(null);
-  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(
-    new Set(['main', 'micro', 'other'])
-  );
 
   const toggleFolder = (key: string) => {
     setExpandedFolders((prev) => {

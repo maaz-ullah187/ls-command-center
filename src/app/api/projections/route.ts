@@ -322,7 +322,6 @@ export async function GET(req: NextRequest) {
         deal_type: string | null;
       };
       const offer = String(row.offer ?? '');
-      const contracted = Number(row.contracted_revenue ?? 0);
       const cash = Number(row.cash_collected ?? 0);
       const dtype = String(row.deal_type ?? '').toLowerCase();
 
@@ -337,10 +336,33 @@ export async function GET(req: NextRequest) {
       if (matchesMastermind(offer)) continue;
 
       if (matchesPTS(offer)) {
-        actuals.contractedPTS += contracted;
+        // Cash side still sourced from t06_deals_closed (closer-announced
+        // upfront collection per the operator's spec).
         actuals.cashPTS += cash;
       }
+      // NB: contractedPTS is no longer summed from t06.contracted_revenue
+      // here — it's derived below from t05_eod_reports.calls_closed × $7,000
+      // so the figure matches the count-of-deals × price-per-PTS-deal model
+      // the operator switched to.
     }
+
+    // ─── t05_eod_reports: contractedPTS = sum(calls_closed) × $7,000 ───────
+    // Per the operator's spec change: contracted Patient Trust System
+    // revenue is now COUNT-based rather than sum of t06.contracted_revenue.
+    // Every closed deal in the EOD reports is a PTS deal at the canonical
+    // $7,000 unit price.
+    const PTS_UNIT_PRICE = 7000;
+    const { data: eodRows } = await supa
+      .from('t05_eod_reports')
+      .select('calls_closed, date')
+      .gte('date', bounds.from)
+      .lte('date', bounds.to)
+      .limit(20000);
+    let ptsCallsClosed = 0;
+    for (const r of (eodRows ?? []) as Array<{ calls_closed: number | string | null }>) {
+      ptsCallsClosed += Number(r.calls_closed ?? 0);
+    }
+    actuals.contractedPTS = ptsCallsClosed * PTS_UNIT_PRICE;
 
     // ─── t07_income_processors: receivables + mastermind + upsells + refunds ──
     // the operator 2026-04-30: switch all back-end revenue rows to source from t07

@@ -286,13 +286,7 @@ export async function GET(req: NextRequest) {
   };
 
   if (supa && bounds) {
-    const [dealsRes, incRes, expRes] = await Promise.all([
-      supa
-        .from('t06_deals_closed')
-        .select('offer, contracted_revenue, cash_collected, deal_type, date_closed')
-        .gte('date_closed', bounds.from)
-        .lte('date_closed', bounds.to)
-        .limit(20000),
+    const [incRes, expRes] = await Promise.all([
       supa
         .from('t07_income_processors')
         .select('amount, final_amount, status, payment_type, offer, date')
@@ -307,43 +301,23 @@ export async function GET(req: NextRequest) {
         .limit(20000),
     ]);
 
-    // ─── t06_deals_closed: contracted + upfront cash for NEW deals ─────────
-    // Per the operator: "go to T06 Deals Closed and pull cash collected and
-    // contracted revenue per offer". For NEW deals only — upsell/renewal/
-    // mastermind/AR all live in t07 now (Architecture B + queue work).
-    // This keeps the "Contracted" rows + "Upfront Cash" rows tied to the
-    // closer-announced numbers from #new-clients, matching Cash by Offer
-    // (which also pulls t06).
-    for (const d of dealsRes.data ?? []) {
-      const row = d as {
-        offer: string | null;
-        contracted_revenue: number | string | null;
-        cash_collected: number | string | null;
-        deal_type: string | null;
-      };
-      const offer = String(row.offer ?? '');
-      const cash = Number(row.cash_collected ?? 0);
-      const dtype = String(row.deal_type ?? '').toLowerCase();
-
-      // Skip non-new deals — t06 renewal/upsell rows are headlined separately
-      // in t07.payment_type='upsell_renewal' which is the source we use for
-      // Backend Ascensions+Renewals so the totals match Revenue Composition.
-      if (dtype === 'renewal' || dtype === 'upsell' || dtype === 'upgrade') continue;
-
-      // Skip mastermind from t06 — the operator 2026-04-30: mastermind classification
-      // happens in t07 (payment_type='mastermind') because Whop product names
-      // don't reliably tag mastermind clients. Pulling from t07 below.
-      if (matchesMastermind(offer)) continue;
-
-      if (matchesPTS(offer)) {
-        // Cash side still sourced from t06_deals_closed (closer-announced
-        // upfront collection per the operator's spec).
-        actuals.cashPTS += cash;
-      }
-      // NB: contractedPTS is no longer summed from t06.contracted_revenue
-      // here — it's derived below from t05_eod_reports.calls_closed × $7,000
-      // so the figure matches the count-of-deals × price-per-PTS-deal model
-      // the operator switched to.
+    // ─── cashPTS ← t07_income_processors (matches New Cash card) ───────────
+    // Per the operator's spec: cashPTS now mirrors the main dashboard's
+    // New Cash card exactly — paid new-client rows from Whop/Fanbasis only,
+    // approved review_status, Stripe explicitly excluded (Stripe rows are
+    // deposit-only and routed to depositRevenue on the headline cards).
+    const { data: cashPtsRows } = await supa
+      .from('t07_income_processors')
+      .select('final_amount')
+      .eq('payment_type', 'new_client')
+      .in('processor', ['whop', 'fanbasis'])
+      .neq('processor', 'stripe')
+      .eq('review_status', 'approved')
+      .gte('date', bounds.from)
+      .lte('date', bounds.to)
+      .limit(50000);
+    for (const r of (cashPtsRows ?? []) as Array<{ final_amount: number | string | null }>) {
+      actuals.cashPTS += Number(r.final_amount ?? 0);
     }
 
     // ─── t05_eod_reports: contractedPTS = sum(calls_closed) × $7,000 ───────

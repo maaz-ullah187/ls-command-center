@@ -13,6 +13,7 @@ import {
   Wallet,
   Percent,
   Users,
+  Trophy,
   Pencil,
   Check,
   X as XIcon,
@@ -360,6 +361,29 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
   const [currentRev, setCurrentRev] = useState<RevBuckets | null>(initialRevBuckets ?? null);
   const [priorRevBuckets, setPriorRevBuckets] = useState<RevBuckets | null>(null);
 
+  // ── Deals Closed (sum of calls_closed across all EODs in the window) ──
+  // Source: /api/data/closer-eods aggregated rows (one per closer per window).
+  // Current + prior periods so the card can render a trend arrow.
+  const [dealsClosedCurrent, setDealsClosedCurrent] = useState<number | null>(null);
+  const [dealsClosedPrior, setDealsClosedPrior] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const prior = priorPeriodFor({ from: tf.from, to: tf.to, preset: tf.preset, label: tf.label });
+    const sumClosed = (rows: unknown): number => {
+      if (!Array.isArray(rows)) return 0;
+      return rows.reduce((acc, r) => acc + (Number((r as { calls_closed?: unknown }).calls_closed) || 0), 0);
+    };
+    Promise.all([
+      fetch(`/api/data/closer-eods?start=${tf.from}&end=${tf.to}`).then((r) => r.ok ? r.json() : []).catch(() => []),
+      fetch(`/api/data/closer-eods?start=${prior.from}&end=${prior.to}`).then((r) => r.ok ? r.json() : []).catch(() => []),
+    ]).then(([cur, prv]) => {
+      if (cancelled) return;
+      setDealsClosedCurrent(sumClosed(cur));
+      setDealsClosedPrior(sumClosed(prv));
+    });
+    return () => { cancelled = true; };
+  }, [tf.from, tf.to, tf.preset, tf.label]);
+
   // Fetch current + prior-period revenue (t07) + expenses (t08) + sheet
   // (for Active Clients only). Listens for `billing:categorized` so the
   // KPIs auto-refresh as the team works the Uncategorized Billing queue.
@@ -688,6 +712,19 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
             />
           );
         })()}
+        <KPICard
+          cardId="main:headline:deals-closed"
+          label="Deals Closed"
+          Icon={Trophy}
+          value={fmtCount(dealsClosedCurrent ?? 0)}
+          exact={fmtCount(dealsClosedCurrent ?? 0)}
+          current={dealsClosedCurrent ?? 0}
+          prior={dealsClosedPrior}
+          priorValueFmt={fmtCount}
+          priorLabel={priorLabel}
+          periodLabel={periodLabel}
+          loading={dealsClosedCurrent === null}
+        />
       </div>
 
       {/* Pace legend (matches Metabase footer) */}

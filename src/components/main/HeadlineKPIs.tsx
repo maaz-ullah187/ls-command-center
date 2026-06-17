@@ -14,6 +14,7 @@ import {
   Percent,
   Users,
   Trophy,
+  UserMinus,
   Pencil,
   Check,
   X as XIcon,
@@ -366,6 +367,29 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
   // Current + prior periods so the card can render a trend arrow.
   const [dealsClosedCurrent, setDealsClosedCurrent] = useState<number | null>(null);
   const [dealsClosedPrior, setDealsClosedPrior] = useState<number | null>(null);
+
+  // ── Churn (count of offboarded clients in window) ──
+  // Source: /api/main/churn → t09_churn (hydrated by /api/sync/churn).
+  // Lower is better, so the card uses `inverse` for the trend coloring.
+  const [churnCurrent, setChurnCurrent] = useState<number | null>(null);
+  const [churnPrior, setChurnPrior] = useState<number | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    const prior = priorPeriodFor({ from: tf.from, to: tf.to, preset: tf.preset, label: tf.label });
+    const getCount = (j: unknown): number => {
+      const c = (j as { count?: unknown })?.count;
+      return typeof c === 'number' ? c : 0;
+    };
+    Promise.all([
+      fetch(`/api/main/churn?from=${tf.from}&to=${tf.to}`).then((r) => r.ok ? r.json() : { count: 0 }).catch(() => ({ count: 0 })),
+      fetch(`/api/main/churn?from=${prior.from}&to=${prior.to}`).then((r) => r.ok ? r.json() : { count: 0 }).catch(() => ({ count: 0 })),
+    ]).then(([cur, prv]) => {
+      if (cancelled) return;
+      setChurnCurrent(getCount(cur));
+      setChurnPrior(getCount(prv));
+    });
+    return () => { cancelled = true; };
+  }, [tf.from, tf.to, tf.preset, tf.label]);
   useEffect(() => {
     let cancelled = false;
     const prior = priorPeriodFor({ from: tf.from, to: tf.to, preset: tf.preset, label: tf.label });
@@ -724,6 +748,20 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
           priorLabel={priorLabel}
           periodLabel={periodLabel}
           loading={dealsClosedCurrent === null}
+        />
+        <KPICard
+          cardId="main:headline:churn"
+          label="Churn"
+          Icon={UserMinus}
+          value={fmtCount(churnCurrent ?? 0)}
+          exact={fmtCount(churnCurrent ?? 0)}
+          current={churnCurrent ?? 0}
+          prior={churnPrior}
+          inverse
+          priorValueFmt={fmtCount}
+          priorLabel={priorLabel}
+          periodLabel={periodLabel}
+          loading={churnCurrent === null}
         />
       </div>
 

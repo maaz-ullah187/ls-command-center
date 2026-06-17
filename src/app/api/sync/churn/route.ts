@@ -133,6 +133,7 @@ export async function POST(request: Request) {
     let scanned = 0;
     let parsed = 0;
     let skippedGate = 0;
+    let skippedTest = 0;
     const rows: Array<Record<string, unknown>> = [];
 
     for (const msg of messages) {
@@ -155,6 +156,24 @@ export async function POST(request: Request) {
       const csManager     = extractField(text, 'CS Manager')
                           ?? extractField(text, 'CS')
                           ?? extractField(text, 'Account Manager');
+
+      // Drop empty / junk / test rows BEFORE pulling the rest of the fields.
+      //   - client_name must exist and be at least 3 chars (filters "AB",
+      //     "—", placeholder dashes, etc.)
+      //   - either client_name OR cs_manager mentioning "test" (case-insensitive)
+      //     means it's a test post the team doesn't want in revenue rollups.
+      const nameTrim = (clientName ?? '').trim();
+      if (nameTrim.length < 3) {
+        skippedTest += 1;
+        continue;
+      }
+      const nameLc = nameTrim.toLowerCase();
+      const mgrLc = (csManager ?? '').toLowerCase();
+      if (nameLc.includes('test') || mgrLc.includes('test')) {
+        skippedTest += 1;
+        continue;
+      }
+
       const reason        = extractField(text, 'Reason')
                           ?? extractField(text, 'Churn Reason')
                           ?? extractField(text, 'Why');
@@ -190,7 +209,7 @@ export async function POST(request: Request) {
     if (rows.length === 0) {
       console.log(
         `[sync/churn] No churn events to upsert ` +
-          `(scanned=${scanned} parsed=${parsed} skippedGate=${skippedGate})`,
+          `(scanned=${scanned} parsed=${parsed} skippedGate=${skippedGate} skippedTest=${skippedTest})`,
       );
       return { rowsUpserted: 0, rowsSkipped: scanned - parsed };
     }
@@ -207,7 +226,7 @@ export async function POST(request: Request) {
 
     console.log(
       `[sync/churn] Upserted ${upserted} churn events ` +
-        `(scanned=${scanned} parsed=${parsed} skippedGate=${skippedGate})`,
+        `(scanned=${scanned} parsed=${parsed} skippedGate=${skippedGate} skippedTest=${skippedTest})`,
     );
     return { rowsUpserted: upserted, rowsSkipped: scanned - parsed };
   });

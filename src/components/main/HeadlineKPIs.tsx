@@ -15,6 +15,7 @@ import {
   Users,
   Trophy,
   UserMinus,
+  TrendingDown,
   Pencil,
   Check,
   X as XIcon,
@@ -763,6 +764,36 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
           periodLabel={periodLabel}
           loading={churnCurrent === null}
         />
+        {(() => {
+          // Churn Rate = churn ÷ active clients. Both current + prior use the
+          // same override-aware active-client base so the card stays in sync
+          // with the Active Clients KPI when an operator override is in play.
+          const currentActive = overrides['active_clients'] ?? kpis.activeClients;
+          const priorActive = priorKpis?.activeClients ?? 0;
+          const currentRate = currentActive > 0 && churnCurrent !== null
+            ? (churnCurrent / currentActive) * 100
+            : 0;
+          const priorRate = priorActive > 0 && churnPrior !== null
+            ? (churnPrior / priorActive) * 100
+            : null;
+          const fmtRate = (n: number) => `${n.toFixed(1)}%`;
+          return (
+            <KPICard
+              cardId="main:headline:churn-rate"
+              label="Churn Rate"
+              Icon={TrendingDown}
+              value={fmtRate(currentRate)}
+              exact={fmtRate(currentRate)}
+              current={currentRate}
+              prior={priorRate}
+              inverse
+              priorValueFmt={fmtRate}
+              priorLabel={priorLabel}
+              periodLabel={periodLabel}
+              loading={churnCurrent === null}
+            />
+          );
+        })()}
       </div>
 
       {/* Pace legend (matches Metabase footer) */}

@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Check } from 'lucide-react';
+import { Loader2, Check, Trash2 } from 'lucide-react';
 
 type Choice = 'new_cash' | 'backend_revenue';
 
@@ -40,6 +40,7 @@ export default function PaymentReviewPage() {
   const [loading, setLoading] = useState(true);
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -72,6 +73,30 @@ export default function PaymentReviewPage() {
       setSavingId(null);
     }
   }, [choices]);
+
+  const remove = useCallback(async (row: QueueRow) => {
+    const label = row.name || row.email || row.id;
+    const confirmed = window.confirm(
+      `Delete this payment?\n\n${label} — ${fmtUSD(row.final_amount ?? row.amount)}\n\nThis permanently removes the row from t07_income_processors. Use Authorise instead if you just want to categorize it.`,
+    );
+    if (!confirmed) return;
+    setDeletingId(row.id);
+    try {
+      const res = await fetch('/api/billing/review-queue', {
+        method: 'DELETE',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: row.id }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(`Delete failed: ${err?.error ?? res.status}`);
+        return;
+      }
+      setRows((prev) => prev.filter((r) => r.id !== row.id));
+    } finally {
+      setDeletingId(null);
+    }
+  }, []);
 
   return (
     <div className="p-6 space-y-6">
@@ -149,19 +174,35 @@ export default function PaymentReviewPage() {
                       </select>
                     </td>
                     <td className="py-2.5 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => authorise(r.id)}
-                        disabled={saving}
-                        className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-emerald-600/40 hover:bg-emerald-600/60 border border-emerald-600/50 text-emerald-200 text-xs font-semibold disabled:opacity-50"
-                      >
-                        {saving ? (
-                          <Loader2 size={12} className="animate-spin" />
-                        ) : (
-                          <Check size={12} />
-                        )}
-                        Authorise
-                      </button>
+                      <div className="inline-flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => authorise(r.id)}
+                          disabled={saving || deletingId === r.id}
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-emerald-600/40 hover:bg-emerald-600/60 border border-emerald-600/50 text-emerald-200 text-xs font-semibold disabled:opacity-50"
+                        >
+                          {saving ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Check size={12} />
+                          )}
+                          Authorise
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => remove(r)}
+                          disabled={saving || deletingId === r.id}
+                          title="Permanently delete this payment"
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-red-600/30 hover:bg-red-600/50 border border-red-600/50 text-red-200 text-xs font-semibold disabled:opacity-50"
+                        >
+                          {deletingId === r.id ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Trash2 size={12} />
+                          )}
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

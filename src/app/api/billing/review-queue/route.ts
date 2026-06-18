@@ -94,3 +94,43 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, id, review_status: 'approved', payment_type: targetPaymentType });
 }
+
+/**
+ * DELETE /api/billing/review-queue
+ *   body: { id: string }
+ *
+ * Hard-deletes a row from t07_income_processors. Used by the Payment Review
+ * page when an operator wants to remove a payment entirely (e.g. duplicate,
+ * test charge, wrong account) rather than authorize it.
+ *
+ * Unlike "mark excluded" via POST + payment_type='excluded' (which keeps the
+ * audit trail), DELETE is permanent. The operator confirms in the UI before
+ * this fires.
+ */
+export async function DELETE(req: NextRequest) {
+  const sb = await getServerSupabaseAsync();
+  if (!sb) return NextResponse.json({ error: 'supabase_not_configured' }, { status: 500 });
+
+  let body: { id?: string };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'invalid_json' }, { status: 400 });
+  }
+
+  const { id } = body;
+  if (!id || typeof id !== 'string') {
+    return NextResponse.json({ error: 'missing_id' }, { status: 400 });
+  }
+
+  const { error } = await sb
+    .from('t07_income_processors')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 502 });
+  }
+
+  return NextResponse.json({ ok: true, id });
+}

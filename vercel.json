@@ -14,8 +14,8 @@
       "schedule": "0 8 * * *"
     },
     {
-      "path": "/api/sync/meta",
-      "schedule": "0 9 * * *"
+      "path": "/api/sync/meta?backfill=2",
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/sync/expenses",

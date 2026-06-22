@@ -71,9 +71,19 @@ function monthBounds(month: string): { from: string; to: string } | null {
   const year = Number(m[1]);
   const mon = Number(m[2]);
   const lastDay = new Date(year, mon, 0).getDate();
+
+  // For the CURRENT month, cap `to` at today so actuals only include data
+  // through today (matches the main dashboard's MTD behavior). For past
+  // months, use the actual last day of the month. Future months also cap
+  // at the last-day so behavior degrades safely.
+  const now = new Date();
+  const isCurrentMonth = year === now.getFullYear() && mon === now.getMonth() + 1;
+  const todayDay = now.getDate();
+  const effectiveLastDay = isCurrentMonth ? Math.min(todayDay, lastDay) : lastDay;
+
   return {
     from: `${m[1]}-${m[2]}-01`,
-    to: `${m[1]}-${m[2]}-${String(lastDay).padStart(2, '0')}`,
+    to: `${m[1]}-${m[2]}-${String(effectiveLastDay).padStart(2, '0')}`,
   };
 }
 

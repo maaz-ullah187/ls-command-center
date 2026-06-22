@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase } from '@/lib/supabase/server';
+import { buildRevenueBucketsResponse } from '@/app/api/main/revenue-buckets/route';
 
 export const dynamic = 'force-dynamic';
 
@@ -314,23 +315,24 @@ export async function GET(req: NextRequest) {
         .limit(20000),
     ]);
 
-    // ─── cashPTS ← t07_income_processors (matches New Cash card) ───────────
-    // Per the operator's spec: cashPTS now mirrors the main dashboard's
-    // New Cash card exactly — paid new-client rows from Whop/Fanbasis only,
-    // approved review_status, Stripe explicitly excluded (Stripe rows are
-    // deposit-only and routed to depositRevenue on the headline cards).
-    const { data: cashPtsRows } = await supa
-      .from('t07_income_processors')
-      .select('final_amount')
-      .eq('payment_type', 'new_client')
-      .in('processor', ['whop', 'fanbasis'])
-      .neq('processor', 'stripe')
-      .eq('review_status', 'approved')
-      .gte('date', bounds.from)
-      .lte('date', bounds.to)
-      .limit(50000);
-    for (const r of (cashPtsRows ?? []) as Array<{ final_amount: number | string | null }>) {
-      actuals.cashPTS += Number(r.final_amount ?? 0);
+    // ─── cashPTS ← /api/main/revenue-buckets newCash ──────────────────────
+    // Single source of truth: the Patient Trust System Upfront figure on
+    // this card now reads the SAME newCash value the main dashboard's New
+    // Cash KPI renders. We call the builder directly (no HTTP) to avoid
+    // the auth middleware and reuse the unstable_cache layer.
+    try {
+      const bucketsReq = new NextRequest(
+        `https://_internal/api/main/revenue-buckets?from=${bounds.from}&to=${bounds.to}`,
+      );
+      const bucketsRes = await buildRevenueBucketsResponse(bucketsReq);
+      const bucketsBody = await bucketsRes.json().catch(() => ({}));
+      const newCash = Number((bucketsBody as { newCash?: unknown })?.newCash ?? 0);
+      if (Number.isFinite(newCash)) {
+        actuals.cashPTS = newCash;
+      }
+    } catch (e) {
+      console.error('[projections] revenue-buckets call failed:', e);
+      // Leave actuals.cashPTS at its initial 0 so the card degrades gracefully.
     }
 
     // ─── t05_eod_reports: contractedPTS = sum(calls_closed) × $7,000 ───────

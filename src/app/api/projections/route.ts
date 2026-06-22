@@ -283,6 +283,9 @@ export async function GET(req: NextRequest) {
 
   // 2. Compute actuals from source tables for the month.
   const bounds = monthBounds(month);
+  // DEBUG (temporary): verify what date range is being used. Remove once the
+  // MTD-vs-full-month behavior is confirmed working end-to-end.
+  console.log(`[projections] bounds: ${JSON.stringify(bounds)}`);
   const actuals = {
     contractedPTS: 0,    // Patient Trust System contracted revenue
     cashPTS: 0,          // Patient Trust System upfront cash collected

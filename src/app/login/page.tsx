@@ -50,7 +50,7 @@ function LoginInner() {
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-blue-600/20 border border-blue-700/40 mb-3">
             <Lock size={20} className="text-blue-300" />
           </div>
-          <h1 className="text-white font-bold text-xl tracking-tight">LS Command Center</h1>
+          <h1 className="text-white font-bold text-xl tracking-tight">PPS Dashboard</h1>
           <p className="text-xs text-gray-400 mt-1">Enter the dashboard password to continue</p>
         </div>
 

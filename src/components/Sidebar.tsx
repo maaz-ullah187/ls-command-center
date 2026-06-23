@@ -135,7 +135,7 @@ export default function Sidebar() {
     <aside className="w-60 shrink-0 bg-gradient-to-b from-[#0d0f12] via-[#0c0e11] to-[#0a0c10] border-r border-gray-800/80 flex flex-col">
       {/* Brand block */}
       <div className="px-5 py-5 border-b border-gray-800/80">
-        <div className="text-white font-bold text-base tracking-tight">LS Command Center</div>
+        <div className="text-white font-bold text-base tracking-tight">PPS Dashboard</div>
         <div className="text-[10px] text-gray-500 mt-1 uppercase tracking-[0.12em] font-semibold">
           Performance Dashboard
         </div>

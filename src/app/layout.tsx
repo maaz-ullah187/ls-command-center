@@ -14,7 +14,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "LS Command Center",
+  title: "PPS Dashboard",
   description: "Unified marketing & sales tracking dashboard",
 };
 

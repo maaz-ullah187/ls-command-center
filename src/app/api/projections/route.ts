@@ -315,11 +315,12 @@ export async function GET(req: NextRequest) {
         .limit(20000),
     ]);
 
-    // ─── cashPTS ← /api/main/revenue-buckets newCash ──────────────────────
-    // Single source of truth: the Patient Trust System Upfront figure on
-    // this card now reads the SAME newCash value the main dashboard's New
-    // Cash KPI renders. We call the builder directly (no HTTP) to avoid
-    // the auth middleware and reuse the unstable_cache layer.
+    // ─── cashPTS + refundsTotal ← /api/main/revenue-buckets ──────────────
+    // Single source of truth for both figures: the Patient Trust System
+    // Upfront and Total Refunds rows on this card now read the SAME
+    // newCash + refunds values the main dashboard's New Cash and Refunds
+    // KPIs render. One builder call covers both — no HTTP, hits the same
+    // unstable_cache layer.
     try {
       const bucketsReq = new NextRequest(
         `https://_internal/api/main/revenue-buckets?from=${bounds.from}&to=${bounds.to}`,
@@ -327,6 +328,12 @@ export async function GET(req: NextRequest) {
       const bucketsRes = await buildRevenueBucketsResponse(bucketsReq);
       const bucketsBody = await bucketsRes.json().catch(() => ({}));
       const newCash = Number((bucketsBody as { newCash?: unknown })?.newCash ?? 0);
+      const refunds = Number((bucketsBody as { refunds?: unknown })?.refunds ?? 0);
+      if (Number.isFinite(refunds)) {
+        // revenue-buckets already stores refunds as a positive number —
+        // Math.abs is defensive in case that ever changes.
+        actuals.refundsTotal = Math.abs(refunds);
+      }
       if (Number.isFinite(newCash)) {
         actuals.cashPTS = newCash;
       }
@@ -376,10 +383,9 @@ export async function GET(req: NextRequest) {
       // Skip 'excluded' rows — wrong-business / mis-routed payments removed via the queue.
       if (ptype === 'excluded') continue;
 
-      if (status === 'refunded' || ptype === 'refund') {
-        actuals.refundsTotal += Math.abs(amt);
-        continue;
-      }
+      // Refunds are no longer summed here — sourced from revenue-buckets
+      // above so Total Refunds matches the main dashboard Refunds card exactly.
+      if (status === 'refunded' || ptype === 'refund') continue;
       if (status !== 'paid') continue;
 
       // Deposit detection runs BEFORE the AR bucket so a deposit booked as

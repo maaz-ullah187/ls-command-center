@@ -105,6 +105,12 @@ export async function POST() {
           notes: null,
           deal_id: null,
           updated_at: new Date().toISOString(),
+          // Payment Review Queue gate (migration 0036) — Whop/Fanbasis
+          // payments dated 2026-06-01+ start out pending review; older
+          // history is auto-approved so prior reporting isn't disrupted.
+          // Existing rows have their review_status preserved below so we
+          // never re-flip an already-approved payment back to pending.
+          review_status: (p.date && p.date >= '2026-06-01') ? 'pending_review' : 'approved',
         });
 
         // ── Refund / chargeback row (the operator 2026-04-25) ──────────────────
@@ -138,6 +144,7 @@ export async function POST() {
               : `Refund of $${p.refundedAmount} for payment ${p.id}`,
             deal_id: null,
             updated_at: new Date().toISOString(),
+            review_status: (p.date && p.date >= '2026-06-01') ? 'pending_review' : 'approved',
           });
         }
       }
@@ -178,6 +185,7 @@ export async function POST() {
           notes: s.subscriptionStatus ? `Status: ${s.subscriptionStatus}` : null,
           deal_id: null,
           updated_at: new Date().toISOString(),
+          review_status: (s.createdAt && s.createdAt >= '2026-06-01') ? 'pending_review' : 'approved',
         });
       }
 
@@ -213,21 +221,28 @@ export async function POST() {
     const ids = uniqueRows.map(r => r.id);
     const existingPaymentType = new Map<string, string>();
     const existingOffer = new Map<string, string>();
+    // review_status preservation (migration 0036): when a row already exists,
+    // its review_status wins so an operator-authorized payment doesn't get
+    // flipped back to pending_review on the next sync.
+    const existingReviewStatus = new Map<string, string>();
     for (let i = 0; i < ids.length; i += 200) {
       const { data: existing } = await sb
         .from('t07_income_processors')
-        .select('id, payment_type, offer')
+        .select('id, payment_type, offer, review_status')
         .in('id', ids.slice(i, i + 200));
-      for (const r of (existing ?? []) as Array<{ id: string; payment_type: string | null; offer: string | null }>) {
+      for (const r of (existing ?? []) as Array<{ id: string; payment_type: string | null; offer: string | null; review_status: string | null }>) {
         const pt = (r.payment_type ?? '').trim();
         if (pt && !SYNC_DEFAULT_PAYMENT_TYPES.has(pt)) existingPaymentType.set(r.id, pt);
         const off = (r.offer ?? '').trim();
         if (off && CANONICAL_OFFERS.has(off.toLowerCase())) existingOffer.set(r.id, off);
+        // Track every existing review_status so the next loop can keep it.
+        if (r.review_status) existingReviewStatus.set(r.id, r.review_status);
       }
     }
 
     let preservedPaymentType = 0;
     let preservedOffer = 0;
+    let preservedReviewStatus = 0;
     for (const row of uniqueRows) {
       const keepPt = existingPaymentType.get(row.id);
       if (keepPt) {
@@ -239,8 +254,15 @@ export async function POST() {
         row.offer = keepOff;
         preservedOffer += 1;
       }
+      // Existing review_status wins — an operator-authorized payment must
+      // never get flipped back to pending_review on a re-sync.
+      const keepRs = existingReviewStatus.get(row.id);
+      if (keepRs) {
+        row.review_status = keepRs;
+        preservedReviewStatus += 1;
+      }
     }
-    console.log(`[sync/income] Preserved manual categorization — payment_type: ${preservedPaymentType}, offer: ${preservedOffer}`);
+    console.log(`[sync/income] Preserved manual categorization — payment_type: ${preservedPaymentType}, offer: ${preservedOffer}, review_status: ${preservedReviewStatus}`);
 
     // ── 14-day new-client window rule (the operator 2026-04-30) ─────────────
     // "If they pay an amount in the first two weeks of working with us,

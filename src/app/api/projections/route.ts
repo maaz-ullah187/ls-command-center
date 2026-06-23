@@ -342,6 +342,32 @@ export async function GET(req: NextRequest) {
       // Leave actuals.cashPTS at its initial 0 so the card degrades gracefully.
     }
 
+    // ─── Refunds operator override (manual_kpi_overrides) ────────────────
+    // The main dashboard Refunds card lets operators inline-edit the value
+    // when the computed t07 figure is wrong. Apply that override here too
+    // so Total Refunds on Pace vs Projection matches what they typed.
+    // Override is keyed on YYYY-MM derived from bounds.from.
+    try {
+      const overrideMonth = bounds.from.slice(0, 7);
+      const { data: overrideRow } = await supa
+        .from('manual_kpi_overrides')
+        .select('value')
+        .eq('metric_key', 'refunds')
+        .eq('month', overrideMonth)
+        .maybeSingle();
+      if (overrideRow) {
+        const overrideVal = Number((overrideRow as { value: number | string | null }).value ?? 0);
+        if (Number.isFinite(overrideVal)) {
+          // Override stored as a positive number; mirror the abs() guard
+          // used on the main dashboard so a stray negative doesn't flip sign.
+          actuals.refundsTotal = Math.abs(overrideVal);
+        }
+      }
+    } catch (e) {
+      console.error('[projections] refunds override lookup failed:', e);
+      // Non-fatal — leave actuals.refundsTotal at the calculated value.
+    }
+
     // ─── t05_eod_reports: contractedPTS = sum(calls_closed) × $7,000 ───────
     // Per the operator's spec change: contracted Patient Trust System
     // revenue is now COUNT-based rather than sum of t06.contracted_revenue.

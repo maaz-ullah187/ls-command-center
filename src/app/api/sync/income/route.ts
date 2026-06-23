@@ -71,7 +71,19 @@ export async function POST() {
       const { fetchWhopPayments } = await import('@/lib/mappers/whop');
       const payments = await fetchWhopPayments(whopToken, 200); // up to 10,000
 
+      let skippedOpenPending = 0;
       for (const p of payments) {
+        // Skip in-flight payments — `open` / `pending` rows aren't revenue
+        // yet (no money has moved), and Whop will transition them to
+        // `paid`/`failed`/etc. on the next sync. Filtering here keeps t07
+        // free of placeholder rows that pollute counts + revenue rollups.
+        // Only paid / refunded / chargedback rows make it into the table.
+        const rawStatus = (p.status ?? '').toLowerCase();
+        if (rawStatus !== 'paid' && rawStatus !== 'refunded' && rawStatus !== 'chargedback') {
+          skippedOpenPending += 1;
+          continue;
+        }
+
         const amount = p.gross;
         const finalAmount = p.net;
         const processingPct = amount > 0
@@ -150,7 +162,7 @@ export async function POST() {
       }
 
       const refundRows = rows.filter(r => r.payment_type === 'refund').length;
-      console.log(`[sync/income] Fetched ${rows.length} Whop payments (${refundRows} refunds/chargebacks)`);
+      console.log(`[sync/income] Fetched ${rows.length} Whop payments (${refundRows} refunds/chargebacks, skipped ${skippedOpenPending} open/pending)`);
     }
 
     // ── Fanbasis subscribers ───────────────────────────────────────────────

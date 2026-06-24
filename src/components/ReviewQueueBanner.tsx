@@ -1049,6 +1049,8 @@ function UncategorizedExpenseRow({
     { label: 'Overhead', value: 'overhead' },
     { label: 'Coaching', value: 'coaching' },
     { label: 'Mastermind', value: 'mastermind' },
+    { label: 'Software', value: 'software' },
+    { label: 'Call Centre', value: 'call_centre' },
     { label: 'Other', value: 'other' },
   ];
 

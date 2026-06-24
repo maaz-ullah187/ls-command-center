@@ -339,7 +339,13 @@ export async function GET(req: NextRequest) {
         actuals.cashPTS = newCash;
       }
       if (Number.isFinite(depositRevenue)) {
-        actuals.depositRevenue = depositRevenue;
+        // depositRevenue from revenue-buckets is intentionally NOT applied here.
+        // The Deposit Revenue row on Pace vs Projection is operator-managed:
+        // the value must be entered manually via the pencil on the main dashboard
+        // (stored in manual_kpi_overrides with metric_key='deposit_revenue').
+        // The override lookup below will set actuals.depositRevenue when present.
+        // This mirrors how Total Refunds works — the operator controls the number.
+        void depositRevenue; // suppress unused-variable warning
       }
     } catch (e) {
       console.error('[projections] revenue-buckets call failed:', e);

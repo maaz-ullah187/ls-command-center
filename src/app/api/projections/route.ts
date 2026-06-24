@@ -372,6 +372,29 @@ export async function GET(req: NextRequest) {
       // Non-fatal — leave actuals.refundsTotal at the calculated value.
     }
 
+    // ─── Deposit Revenue operator override (manual_kpi_overrides) ───────────
+    // The main dashboard Deposit Revenue card lets operators inline-edit the
+    // value. Apply that override here so Deposit Revenue on Pace vs Projection
+    // always matches what the operator typed on the main dashboard.
+    try {
+      const overrideMonth = bounds.from.slice(0, 7);
+      const { data: depositOverrideRow } = await supa
+        .from('manual_kpi_overrides')
+        .select('value')
+        .eq('metric_key', 'deposit_revenue')
+        .eq('month', overrideMonth)
+        .maybeSingle();
+      if (depositOverrideRow) {
+        const overrideVal = Number((depositOverrideRow as { value: number | string | null }).value ?? 0);
+        if (Number.isFinite(overrideVal)) {
+          actuals.depositRevenue = Math.abs(overrideVal);
+        }
+      }
+    } catch (e) {
+      console.error('[projections] deposit_revenue override lookup failed:', e);
+      // Non-fatal — leave actuals.depositRevenue at the revenue-buckets value.
+    }
+
     // ─── t05_eod_reports: contractedPTS = sum(calls_closed) × $7,000 ───────
     // Per the operator's spec change: contracted Patient Trust System
     // revenue is now COUNT-based rather than sum of t06.contracted_revenue.

@@ -329,6 +329,7 @@ export async function GET(req: NextRequest) {
       const bucketsBody = await bucketsRes.json().catch(() => ({}));
       const newCash = Number((bucketsBody as { newCash?: unknown })?.newCash ?? 0);
       const refunds = Number((bucketsBody as { refunds?: unknown })?.refunds ?? 0);
+      const depositRevenue = Number((bucketsBody as { depositRevenue?: unknown })?.depositRevenue ?? 0);
       if (Number.isFinite(refunds)) {
         // revenue-buckets already stores refunds as a positive number —
         // Math.abs is defensive in case that ever changes.
@@ -336,6 +337,9 @@ export async function GET(req: NextRequest) {
       }
       if (Number.isFinite(newCash)) {
         actuals.cashPTS = newCash;
+      }
+      if (Number.isFinite(depositRevenue)) {
+        actuals.depositRevenue = depositRevenue;
       }
     } catch (e) {
       console.error('[projections] revenue-buckets call failed:', e);
@@ -420,7 +424,9 @@ export async function GET(req: NextRequest) {
       const isDeposit = offer.includes('deposit');
 
       if (isDeposit) {
-        actuals.depositRevenue += amt;
+        // Deposit Revenue is now sourced from revenue-buckets above (matches
+        // the main dashboard Deposit Revenue card exactly). Skip here to avoid
+        // double-counting.
       } else if (ptype === 'account_receivable') {
         actuals.mrr += amt;
       }

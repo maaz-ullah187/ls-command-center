@@ -498,15 +498,16 @@ export default function HeadlineKPIs({ initialRevBuckets }: HeadlineKPIsProps = 
     // refunds override flows through. Previously we preferred the server's
     // pre-computed currentRev.netRevenue, which baked in the un-overridden
     // refunds value and ignored the operator's correction.
-    const netRevenue = newCash + backend - refunds;
+    // Deposit Revenue: use manual override if set, otherwise auto-calculated
+    const depositRevenue = overrides['deposit_revenue'] !== undefined
+      ? Math.abs(overrides['deposit_revenue'])
+      : (currentRev?.depositRevenue ?? 0);
+    // Net Revenue = New Cash + Backend Revenue + Deposit Revenue - Refunds
+    const netRevenue = newCash + backend + depositRevenue - refunds;
     const totalExpenses = currentExpensesTotal ?? 0;
     const netProfit = netRevenue - totalExpenses;
     const marginPct = netRevenue > 0 ? (netProfit / netRevenue) * 100 : 0;
-    // Active = status IN ('Active','Upsold') per the spec 2026-04-30. Sourced
-    // from the sheet (manually-maintained client status). NOT total client
-    // count (which was wrongly showing 380 here previously).
     const activeClients = sheetRevenue.activeClientCount ?? 0;
-    const depositRevenue = currentRev?.depositRevenue ?? 0;
     return { newCash, refunds, backend, netRevenue, totalExpenses, netProfit, marginPct, activeClients, depositRevenue };
   }, [currentRev, currentExpensesTotal, sheetRevenue, overrides]);
 
